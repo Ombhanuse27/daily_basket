@@ -113,46 +113,50 @@ class _BuyProductPageState extends State<BuyProductPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Buy Products"),
+        title: const Text("Buy Products", style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.green,
+        elevation: 4,
       ),
       body: Stack(
         children: [
           Column(
             children: [
               if (categories.isNotEmpty)
-                SizedBox(
-                  height: 50,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: categories.length,
-                    itemBuilder: (context, index) {
-                      final cat = categories[index];
-                      final isSelected = cat == selectedCategory;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: ChoiceChip(
-                          label: Text(cat),
-                          selected: isSelected,
-                          selectedColor: Colors.green,
-                          onSelected: (_) {
-                            setState(() {
-                              selectedCategory = isSelected ? null : cat;
-                            });
-                            _loadProducts();
-                          },
-                        ),
-                      );
-                    },
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    height: 40,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final cat = categories[index];
+                        final isSelected = cat == selectedCategory;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: ChoiceChip(
+                            label: Text(cat),
+                            selected: isSelected,
+                            selectedColor: Colors.green,
+                            onSelected: (_) {
+                              setState(() {
+                                selectedCategory = isSelected ? null : cat;
+                              });
+                              _loadProducts();
+                            },
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               Padding(
                 padding: const EdgeInsets.all(10),
                 child: TextField(
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Search Product',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.search),
                   ),
                   onChanged: (value) {
                     searchQuery = value;
@@ -179,21 +183,31 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     int available = int.tryParse(item['quantity'].toString()) ?? 0;
 
                     return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      elevation: 4,
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: Padding(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(12),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            item['image'] != null
-                                ? Image.file(
-                              File(item['image']),
-                              width: 60,
-                              height: 60,
-                              fit: BoxFit.cover,
-                            )
-                                : const Icon(Icons.image, size: 60),
-                            const SizedBox(width: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: item['image'] != null
+                                  ? Image.file(
+                                File(item['image']),
+                                width: 70,
+                                height: 70,
+                                fit: BoxFit.cover,
+                              )
+                                  : Container(
+                                width: 70,
+                                height: 70,
+                                color: Colors.grey[300],
+                                child: const Icon(Icons.image, size: 40),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,16 +215,17 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                   Text(item['name'],
                                       style: const TextStyle(
                                           fontSize: 16, fontWeight: FontWeight.bold)),
-                                  Text("Rate: ₹${item['rate']}  •  Type: ${item['type']}"),
+                                  const SizedBox(height: 4),
+                                  Text("Rate: ₹${item['rate']} • Type: ${item['type']}"),
                                   Text("Available: ${item['quantity']} ${item['unit']}"),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 10),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Row(
                                         children: [
                                           IconButton(
-                                            icon: const Icon(Icons.remove),
+                                            icon: const Icon(Icons.remove_circle_outline),
                                             onPressed: () {
                                               if (productQuantities[id]! > 1) {
                                                 setState(() => productQuantities[id] = productQuantities[id]! - 1);
@@ -219,22 +234,21 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                           ),
                                           Text("${productQuantities[id]} ${item['unit']}"),
                                           IconButton(
-                                            icon: const Icon(Icons.add),
+                                            icon: const Icon(Icons.add_circle_outline),
                                             onPressed: () {
                                               if (productQuantities[id]! < available) {
                                                 setState(() => productQuantities[id] = productQuantities[id]! + 1);
                                               } else {
                                                 ScaffoldMessenger.of(context).showSnackBar(
                                                   SnackBar(
-                                                      content:
-                                                      Text('Only $available items available')),
+                                                      content: Text('Only $available items available')),
                                                 );
                                               }
                                             },
                                           ),
                                         ],
                                       ),
-                                      ElevatedButton(
+                                      ElevatedButton.icon(
                                         onPressed: () {
                                           setState(() {
                                             selectedProducts[id] = true;
@@ -243,8 +257,12 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                             SnackBar(content: Text('${item['name']} added to cart')),
                                           );
                                         },
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                        child: const Text("Add to Cart"),
+                                        icon: const Icon(Icons.add_shopping_cart),
+                                        style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.green,
+                                            shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(8))),
+                                        label: const Text("Add"),
                                       )
                                     ],
                                   )
@@ -269,7 +287,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf),
+                      icon: const Icon(Icons.receipt_long),
                       onPressed: () {
                         if (selectedProducts.values.any((v) => v == true)) {
                           _generatePdfBill();
@@ -282,6 +300,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       label: const Text("Buy & Generate Bill"),
                     ),
@@ -290,98 +309,105 @@ class _BuyProductPageState extends State<BuyProductPage> {
               ),
             ],
           ),
-          Positioned(
-            left: 10,
-            bottom: 20,
-            child: selectedProducts.values.any((v) => v == true)
-                ? GestureDetector(
-              onTap: () {
-                final cartItems = selectedProducts.entries
-                    .where((entry) => entry.value)
-                    .map((entry) => allProducts.firstWhere((p) => p['id'] == entry.key, orElse: () => {}))
-                    .where((item) => item != null)
-                    .toList();
+          if (selectedProducts.values.any((v) => v == true))
+            Positioned(
+              left: 10,
+              bottom: 20,
+              child: GestureDetector(
+                onTap: () {
+                  final cartItems = selectedProducts.entries
+                      .where((entry) => entry.value)
+                      .map((entry) =>
+                      allProducts.firstWhere((p) => p['id'] == entry.key, orElse: () => {}))
+                      .where((item) => item != null)
+                      .toList();
 
-                showModalBottomSheet(
-                  context: context,
-                  builder: (_) {
-                    return ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        const Text("Cart Items",
-                            style:
-                            TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 10),
-                        ...cartItems.map((item) {
-                          final id = item['id'];
-                          final available = int.tryParse(item['quantity'].toString()) ?? 0;
-                          return ListTile(
-                            title: Text(item['name']),
-                            subtitle: Text("Rate: ₹${item['rate']} • Available: ${item['quantity']} ${item['unit']}") ,
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                    icon: const Icon(Icons.remove),
-                                    onPressed: () {
-                                      if ((productQuantities[id] ?? 1) > 1) {
-                                        setState(() {
-                                          productQuantities[id] =
-                                              (productQuantities[id] ?? 1) - 1;
-                                        });
-                                      }
-                                    }),
-                                Text("${productQuantities[id]} ${item['unit']}"),
-                                IconButton(
-                                    icon: const Icon(Icons.add),
-                                    onPressed: () {
-                                      if ((productQuantities[id] ?? 1) < available) {
-                                        setState(() {
-                                          productQuantities[id] =
-                                              (productQuantities[id] ?? 1) + 1;
-                                        });
-                                      } else {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Only $available items available')),
-                                        );
-                                      }
-                                    }),
-                                IconButton(
-                                    icon: const Icon(Icons.delete),
-                                    onPressed: () {
-                                      setState(() {
-                                        selectedProducts[id] = false;
-                                      });
-                                      Navigator.pop(context);
-                                    }),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
-                    );
-                  },
-                );
-              },
-              child: Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.shopping_cart, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text("View Cart", style: TextStyle(color: Colors.white)),
-                  ],
+                  showModalBottomSheet(
+                    context: context,
+                    shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                    builder: (_) {
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: ListView(
+                          children: [
+                            const Text("Cart Items",
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 10),
+                            ...cartItems.map((item) {
+                              final id = item['id'];
+                              final available = int.tryParse(item['quantity'].toString()) ?? 0;
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                                title: Text(item['name']),
+                                subtitle: Text(
+                                    "Rate: ₹${item['rate']} • Available: ${item['quantity']} ${item['unit']}"),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                        icon: const Icon(Icons.remove),
+                                        onPressed: () {
+                                          if ((productQuantities[id] ?? 1) > 1) {
+                                            setState(() {
+                                              productQuantities[id] =
+                                                  (productQuantities[id] ?? 1) - 1;
+                                            });
+                                          }
+                                        }),
+                                    Text("${productQuantities[id]} ${item['unit']}"),
+                                    IconButton(
+                                        icon: const Icon(Icons.add),
+                                        onPressed: () {
+                                          if ((productQuantities[id] ?? 1) < available) {
+                                            setState(() {
+                                              productQuantities[id] =
+                                                  (productQuantities[id] ?? 1) + 1;
+                                            });
+                                          } else {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                  content: Text(
+                                                      'Only $available items available')),
+                                            );
+                                          }
+                                        }),
+                                    IconButton(
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () {
+                                          setState(() {
+                                            selectedProducts[id] = false;
+                                          });
+                                          Navigator.pop(context);
+                                        }),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shopping_cart, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text("View Cart", style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
                 ),
               ),
             )
-                : const SizedBox(),
-          )
         ],
       ),
     );

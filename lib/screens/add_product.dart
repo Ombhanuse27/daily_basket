@@ -22,6 +22,9 @@ class _AddProductPageState extends State<AddProductPage> {
   final unitController = TextEditingController();
   bool isLoading = false;
   String? selectedImage;
+  //dummy image
+  final String dummyImg = "assets/images/img_4.png";
+
 
   List<String> types = [];
   List<String> units = [];
@@ -72,11 +75,11 @@ class _AddProductPageState extends State<AddProductPage> {
                     borderRadius: BorderRadius.circular(15),
                     color: Colors.grey[200],
                   ),
-                  child: selectedImage == null
-                      ? const Center(child: Text('Tap to select product image'))
-                      : ClipRRect(
+                  child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
-                    child: Image.file(File(selectedImage!), fit: BoxFit.cover),
+                    child: selectedImage == null
+                        ? Image.asset(dummyImg, fit: BoxFit.cover)
+                        : Image.file(File(selectedImage!), fit: BoxFit.cover),
                   ),
                 ),
               ),
@@ -213,7 +216,7 @@ class _AddProductPageState extends State<AddProductPage> {
   }
 
   Future<void> _uploadProduct() async {
-    if (selectedImage == null ||
+    if (
         (selectedType == null && categoryController.text.trim().isEmpty) ||
         nameController.text.trim().isEmpty ||
         rateController.text.trim().isEmpty ||
@@ -230,12 +233,14 @@ class _AddProductPageState extends State<AddProductPage> {
 
     setState(() => isLoading = true);
 
+
+
     try {
       await DBHelper.insertProduct(
         nameController.text.trim(),
         rateController.text.trim(),
         categoryToUse,
-        selectedImage!,
+        selectedImage ?? dummyImg,
         quantityController.text.trim(),
         unitToUse,
       );
