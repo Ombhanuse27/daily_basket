@@ -9,6 +9,18 @@ class DeleteProductPage extends StatefulWidget {
   State<DeleteProductPage> createState() => _DeleteProductPageState();
 }
 
+Widget buildProductImage(String? imagePath, {double size = 70}) {
+  if (imagePath != null && imagePath.startsWith("assets/")) {
+    return Image.asset(imagePath, width: size, height: size, fit: BoxFit.cover);
+  } else if (imagePath != null && File(imagePath).existsSync()) {
+    return Image.file(File(imagePath), width: size, height: size, fit: BoxFit.cover);
+  } else {
+    return Image.asset('assets/images/img_4.png', width: size, height: size, fit: BoxFit.cover);
+  }
+}
+
+
+
 class _DeleteProductPageState extends State<DeleteProductPage> {
   List<Map<String, dynamic>> products = [];
 
@@ -49,14 +61,7 @@ class _DeleteProductPageState extends State<DeleteProductPage> {
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: ListTile(
-              leading: item['image'] != null
-                  ? Image.file(
-                File(item['image']),
-                width: 50,
-                height: 50,
-                fit: BoxFit.cover,
-              )
-                  : const Icon(Icons.image_not_supported),
+              leading: buildProductImage(item['image']),
               title: Text(item['name']),
               subtitle:
               Text("Rate: ₹${item['rate']}  •  Type: ${item['type']}"),

@@ -12,6 +12,17 @@ class AddProductPage extends StatefulWidget {
   State<AddProductPage> createState() => _AddProductPageState();
 }
 
+Widget buildProductImage(String? imagePath, {double size = 70}) {
+  if (imagePath != null && imagePath.startsWith("assets/")) {
+    return Image.asset(imagePath, width: size, height: size, fit: BoxFit.cover);
+  } else if (imagePath != null && File(imagePath).existsSync()) {
+    return Image.file(File(imagePath), width: size, height: size, fit: BoxFit.cover);
+  } else {
+    return Image.asset('assets/images/img_4.png', width: size, height: size, fit: BoxFit.cover);
+  }
+}
+
+
 class _AddProductPageState extends State<AddProductPage> {
   String? selectedType;
   String? selectedUnit;
@@ -77,9 +88,8 @@ class _AddProductPageState extends State<AddProductPage> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
-                    child: selectedImage == null
-                        ? Image.asset(dummyImg, fit: BoxFit.cover)
-                        : Image.file(File(selectedImage!), fit: BoxFit.cover),
+                    child: buildProductImage(selectedImage, size: 220)
+
                   ),
                 ),
               ),
@@ -172,7 +182,7 @@ class _AddProductPageState extends State<AddProductPage> {
               child: ElevatedButton.icon(
                 onPressed: _uploadProduct,
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text("Upload Product"),
+                label: const Text("Add Product"),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: Colors.deepPurple,

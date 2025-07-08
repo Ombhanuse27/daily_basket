@@ -117,12 +117,12 @@ class DBHelper {
     );
   }
 
-  static Future<void> reduceProductQuantity(int id, int quantityToReduce) async {
+  static Future<void> reduceProductQuantity(int id, double quantityToReduce) async {
     final db = await _getDatabase();
     final result = await db.query('products', where: 'id = ?', whereArgs: [id]);
     if (result.isNotEmpty) {
-      int currentQuantity = int.tryParse(result.first['quantity'].toString()) ?? 0;
-      int newQuantity = currentQuantity - quantityToReduce;
+      double currentQuantity = double.tryParse(result.first['quantity'].toString()) ?? 0;
+      double newQuantity = currentQuantity - quantityToReduce;
       if (newQuantity < 0) newQuantity = 0;
       await db.update(
         'products',
@@ -132,6 +132,7 @@ class DBHelper {
       );
     }
   }
+
 
   static Future<void> insertCategory(String category) async {
     final db = await _getDatabase();

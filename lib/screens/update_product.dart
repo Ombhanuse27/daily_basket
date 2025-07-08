@@ -12,6 +12,18 @@ class UpdateProductPage extends StatefulWidget {
   State<UpdateProductPage> createState() => _UpdateProductPageState();
 }
 
+Widget buildProductImage(String? imagePath, {double size = 70}) {
+  if (imagePath != null && imagePath.startsWith("assets/")) {
+    return Image.asset(imagePath, width: size, height: size, fit: BoxFit.cover);
+  } else if (imagePath != null && File(imagePath).existsSync()) {
+    return Image.file(File(imagePath), width: size, height: size, fit: BoxFit.cover);
+  } else {
+    return Image.asset('assets/images/img_4.png', width: size, height: size, fit: BoxFit.cover);
+  }
+}
+
+
+
 class _UpdateProductPageState extends State<UpdateProductPage> {
   List<Map<String, dynamic>> products = [];
   Map<String, dynamic>? selectedProduct;
@@ -133,9 +145,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
         itemBuilder: (context, index) {
           final item = products[index];
           return ListTile(
-            leading: item['image'] != null
-                ? Image.file(File(item['image']), width: 50, height: 50, fit: BoxFit.cover)
-                : const Icon(Icons.image),
+            leading: buildProductImage(item['image']),
             title: Text(item['name']),
             subtitle: Text("₹${item['rate']} • ${item['type']} • ${item['quantity']} ${item['unit']}"),
             trailing: IconButton(
