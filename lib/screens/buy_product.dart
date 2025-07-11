@@ -41,6 +41,12 @@ class _BuyProductPageState extends State<BuyProductPage> {
     _loadProducts();
   }
 
+  bool isDecimalAllowed(String unit) {
+    final lower = unit.toLowerCase();
+    return !(lower.contains("piece") || lower.contains("packet") || lower.contains("unit") || lower.contains("bottle"));
+  }
+
+
   Future<void> _loadCategories() async {
     final cats = await DBHelper.getAllCategories();
     setState(() => categories = cats);
@@ -90,6 +96,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
       int id = item['id'];
       double qty = productQuantities[id] ?? 1.0;
       await DBHelper.reduceProductQuantity(id, qty);
+      await DBHelper.recordSale(id, qty);
     }
 
     await _loadProducts();
@@ -198,6 +205,9 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     int id = item['id'];
                     double available = double.tryParse(item['quantity'].toString()) ?? 0;
 
+                    final unit = item['unit'] ?? '';
+                    final allowDecimal = isDecimalAllowed(unit);
+
                     return Card(
                       elevation: 4,
                       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -260,14 +270,17 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                 IconButton(
                                                   icon: const Icon(Icons.remove_circle_outline),
                                                   onPressed: () {
-                                                    if (productQuantities[id]! > 1) {
-                                                      setState(() {
-                                                        productQuantities[id] = productQuantities[id]! - 1;
-                                                        _quantityControllers[id]!.text = productQuantities[id]!.toString();
-                                                      });
-                                                    }
+    final currentQty = productQuantities[id]!;
+    if (currentQty > 1) {
+    final newQty = allowDecimal ? currentQty - 1 : (currentQty - 1).floorToDouble();
+    setState(() {
+    productQuantities[id] = newQty;
+    _quantityControllers[id]!.text = newQty.toString();
+    });
+    }
 
-                                                  },
+
+    },
                                                 ),
                                                 SizedBox(
                                                   width: 50,
@@ -279,6 +292,12 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                     onChanged: (value) {
                                                       final parsed = double.tryParse(value);
                                                       if (parsed != null) {
+                                                        if (!allowDecimal && parsed % 1 != 0) {
+                                                          ScaffoldMessenger.of(context).showSnackBar(
+                                                            SnackBar(content: Text('Decimal quantity not allowed for $unit items')),
+                                                          );
+                                                          return;
+                                                        }
                                                         if (parsed <= available) {
                                                           setState(() => productQuantities[id] = parsed);
                                                         } else {
@@ -292,19 +311,20 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                 ),
                                                 IconButton(
                                                   icon: const Icon(Icons.add_circle_outline),
-                                                  onPressed: () {
-                                                    if (productQuantities[id]! + 1 <= available) {
-                                                      setState(() {
-                                                        productQuantities[id] = productQuantities[id]! + 1;
-                                                        _quantityControllers[id]!.text = productQuantities[id]!.toString();
-                                                      });
-                                                    }
-                                                    else {
-                                                      ScaffoldMessenger.of(context).showSnackBar(
-                                                        SnackBar(content: Text('Only $available items available')),
-                                                      );
-                                                    }
-                                                  },
+    onPressed: () {
+    final currentQty = productQuantities[id]!;
+    final newQty = allowDecimal ? currentQty + 1 : (currentQty + 1).floorToDouble();
+    if (newQty <= available) {
+    setState(() {
+    productQuantities[id] = newQty;
+    _quantityControllers[id]!.text = newQty.toString();
+    });
+    } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Only $available items available')),
+    );
+    }
+    },
                                                 ),
                                               ],
                                             ),
@@ -427,6 +447,9 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     // ✅ Updated line: pull correct quantity after refresh
                     double available = double.tryParse(item['quantity'].toString()) ?? 0;
                     double quantity = productQuantities[id] ?? 1.0;
+                    final unit = item['unit'] ?? '';
+                    final allowDecimal = isDecimalAllowed(unit);
+
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,18 +480,21 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                 onChanged: (value) {
                                   final parsed = double.tryParse(value);
                                   if (parsed != null) {
+                                    if (!allowDecimal && parsed % 1 != 0) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Decimal quantity not allowed for $unit items')),
+                                      );
+                                      return;
+                                    }
                                     if (parsed <= available) {
-                                      setState(() {
-                                        productQuantities[id] = parsed;
-                                        _quantityControllers[id]?.text = parsed.toString();
-                                      });
-                                      setDialogState(() {});
+                                      setState(() => productQuantities[id] = parsed);
                                     } else {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         SnackBar(content: Text('Only $available items available')),
                                       );
                                     }
                                   }
+
                                 },
                               ),
                             ),
@@ -477,7 +503,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
                               onPressed: () {
                                 if (quantity + 1 <= available) {
                                   setState(() {
-                                    productQuantities[id] = quantity + 1;
+                                    productQuantities[id] = allowDecimal ? (quantity + 1) : (quantity + 1).floorToDouble();
+
                                     _quantityControllers[id]?.text = productQuantities[id]!.toString();
                                   });
                                   setDialogState(() {});

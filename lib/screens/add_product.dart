@@ -31,6 +31,8 @@ class _AddProductPageState extends State<AddProductPage> {
   final quantityController = TextEditingController();
   final categoryController = TextEditingController();
   final unitController = TextEditingController();
+  final originalRateController = TextEditingController();
+
   bool isLoading = false;
   String? selectedImage;
   //dummy image
@@ -99,6 +101,8 @@ class _AddProductPageState extends State<AddProductPage> {
             _buildTextField(nameController, 'Product Name', Icons.shopping_bag),
             const SizedBox(height: 16),
             _buildTextField(rateController, 'Rate', Icons.currency_rupee),
+            const SizedBox(height: 16),
+            _buildTextField(originalRateController, 'Original Rate', Icons.currency_rupee),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -227,9 +231,10 @@ class _AddProductPageState extends State<AddProductPage> {
 
   Future<void> _uploadProduct() async {
     if (
-        (selectedType == null && categoryController.text.trim().isEmpty) ||
+    (selectedType == null && categoryController.text.trim().isEmpty) ||
         nameController.text.trim().isEmpty ||
         rateController.text.trim().isEmpty ||
+        originalRateController.text.trim().isEmpty ||
         quantityController.text.trim().isEmpty ||
         (selectedUnit == null && unitController.text.trim().isEmpty)) {
       ScaffoldMessenger.of(context as BuildContext).showSnackBar(
@@ -237,6 +242,7 @@ class _AddProductPageState extends State<AddProductPage> {
       );
       return;
     }
+
 
     final categoryToUse = selectedType ?? categoryController.text.trim();
     final unitToUse = selectedUnit ?? unitController.text.trim();
@@ -249,6 +255,7 @@ class _AddProductPageState extends State<AddProductPage> {
       await DBHelper.insertProduct(
         nameController.text.trim(),
         rateController.text.trim(),
+        originalRateController.text.trim(),
         categoryToUse,
         selectedImage ?? dummyImg,
         quantityController.text.trim(),

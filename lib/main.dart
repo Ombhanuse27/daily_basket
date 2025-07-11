@@ -1,3 +1,4 @@
+import 'package:daily_basket/screens/stocks_sales.dart';
 import 'package:flutter/material.dart';
 import 'screens/add_product.dart';
 import 'screens/product_list.dart';
@@ -9,12 +10,12 @@ import 'screens/logout.dart';
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({Key? key}) : super(key: key);
 
-  void notification(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ProductListPage()),
-    );
-  }
+  // void notification(BuildContext context) {
+  //   Navigator.push(
+  //     context,
+  //     MaterialPageRoute(builder: (_) => const StockAndSalesPage()),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -31,13 +32,13 @@ class AdminDashboard extends StatelessWidget {
             color: Colors.black87,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: Image.asset('assets/images/notify.png'),
-            iconSize: 30,
-            onPressed: () => notification(context),
-          ),
-        ],
+        // actions: [
+        //   IconButton(
+        //     icon: Image.asset('assets/images/notify.png'),
+        //     iconSize: 30,
+        //     onPressed: () => notification(context),
+        //   ),
+        // ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
@@ -63,37 +64,17 @@ class AdminDashboard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       onTap: () {
         if (title == 'Add Product') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddProductPage()),
-          ).then((value) {
-            if (value == true) {
-              // Optionally show a snackbar or toast here
-              // Or trigger refresh logic elsewhere if needed
-              // No action needed if BuyProductPage will refresh itself when opened
-            }
-          });
-        }
-        else if (title == 'Delete Product') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DeleteProductPage()),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const AddProductPage()));
+        } else if (title == 'Delete Product') {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const DeleteProductPage()));
         } else if (title == 'Update Product') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const UpdateProductPage()),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const UpdateProductPage()));
         } else if (title == 'Buy Product') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const BuyProductPage()),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const BuyProductPage()));
         } else if (title == 'Logout') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const LogoutPage()),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const LogoutPage()));
+        } else if (title == 'Stock & Sales') {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const StockAndSalesPage()));
         }
       },
       child: Card(
@@ -103,12 +84,7 @@ class AdminDashboard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Image.asset(
-              imagePath,
-              width: 70,
-              height: 70,
-              fit: BoxFit.contain,
-            ),
+            Image.asset(imagePath, width: 70, height: 70, fit: BoxFit.contain),
             const SizedBox(height: 12),
             Text(
               title,
@@ -131,6 +107,7 @@ final List<Map<String, String>> _dashboardItems = [
   {'title': 'Delete Product', 'image': 'assets/images/delete.png'},
   {'title': 'Update Product', 'image': 'assets/images/img_1.png'},
   {'title': 'Buy Product', 'image': 'assets/images/img_2.png'},
+  {'title': 'Stock & Sales', 'image': 'assets/images/stocks.png'}, // ✅ New Item
   {'title': 'Logout', 'image': 'assets/images/img_3.png'},
 ];
 

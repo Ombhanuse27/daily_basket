@@ -32,6 +32,8 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
   final nameController = TextEditingController();
   final rateController = TextEditingController();
   final quantityController = TextEditingController();
+  final originalRateController = TextEditingController();
+
   String? selectedType;
   String? selectedUnit;
   String? selectedImage;
@@ -68,6 +70,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
       selectedProduct = product;
       nameController.text = product['name'];
       rateController.text = product['rate'].toString();
+      originalRateController.text = product['originalRate']?.toString() ?? '';
       quantityController.text = product['quantity'].toString();
       selectedType = product['type'];
       selectedUnit = product['unit'];
@@ -107,6 +110,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
       selectedProduct!['id'],
       nameController.text.trim(),
       rateController.text.trim(),
+      originalRateController.text.trim(),
       selectedType!,
       selectedImage!,
       quantityController.text.trim(),
@@ -121,6 +125,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
       selectedProduct = null;
       nameController.clear();
       rateController.clear();
+      originalRateController.clear();
       quantityController.clear();
       selectedType = null;
       selectedUnit = null;
@@ -193,6 +198,8 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
             _buildTextField(nameController, 'Product Name', Icons.shopping_bag),
             const SizedBox(height: 16),
             _buildTextField(rateController, 'Rate', Icons.currency_rupee),
+            const SizedBox(height: 16),
+            _buildTextField(originalRateController, 'Original Rate', Icons.currency_rupee),
             const SizedBox(height: 16),
             _buildTextField(quantityController, 'Quantity', Icons.production_quantity_limits),
             const SizedBox(height: 20),
