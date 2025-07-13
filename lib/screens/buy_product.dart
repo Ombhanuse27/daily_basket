@@ -109,20 +109,20 @@ class _BuyProductPageState extends State<BuyProductPage> {
             pw.Text("Bill Receipt", style: pw.TextStyle(fontSize: 24)),
             pw.SizedBox(height: 10),
             pw.Table.fromTextArray(
-              headers: ['Product', 'Qty', 'Rate', 'Subtotal'],
+              headers: ['Product', 'Quantity', 'Rate', 'Subtotal'],
               data: selectedItems.map((item) {
                 double qty = productQuantities[item['id']]!;
                 double rate = double.parse(item['rate'].toString());
                 return [
                   item['name'],
-                  qty.toString(),
-                  "₹$rate",
-                  "₹${(rate * qty).toStringAsFixed(2)}"
+                  "${qty.toString()} ${item['unit'] ?? ''}",
+                  "Rs:$rate",
+                  "Rs:${(rate * qty).toStringAsFixed(2)}"
                 ];
               }).toList(),
             ),
             pw.SizedBox(height: 20),
-            pw.Text("Total: ₹${_calculateTotalAmount().toStringAsFixed(2)}",
+            pw.Text("Total: Rs:${_calculateTotalAmount().toStringAsFixed(2)}",
                 style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
           ],
         ),
