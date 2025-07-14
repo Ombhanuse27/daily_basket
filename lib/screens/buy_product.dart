@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
@@ -286,28 +287,26 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                   width: 50,
                                                   child: TextField(
                                                     controller: _quantityControllers[id],
-                                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                                    keyboardType: allowDecimal
+                                                        ? const TextInputType.numberWithOptions(decimal: true)
+                                                        : TextInputType.number,
+                                                    inputFormatters: allowDecimal
+                                                        ? []
+                                                        : [FilteringTextInputFormatter.digitsOnly],
                                                     textAlign: TextAlign.center,
                                                     decoration: const InputDecoration(border: InputBorder.none),
                                                     onChanged: (value) {
                                                       final parsed = double.tryParse(value);
-                                                      if (parsed != null) {
-                                                        if (!allowDecimal && parsed % 1 != 0) {
-                                                          ScaffoldMessenger.of(context).showSnackBar(
-                                                            SnackBar(content: Text('Decimal quantity not allowed for $unit items')),
-                                                          );
-                                                          return;
-                                                        }
-                                                        if (parsed <= available) {
-                                                          setState(() => productQuantities[id] = parsed);
-                                                        } else {
-                                                          ScaffoldMessenger.of(context).showSnackBar(
-                                                            SnackBar(content: Text('Only $available items available')),
-                                                          );
-                                                        }
+                                                      if (parsed != null && parsed <= available) {
+                                                        setState(() => productQuantities[id] = parsed);
+                                                      } else {
+                                                        ScaffoldMessenger.of(context).showSnackBar(
+                                                          SnackBar(content: Text('Only $available items available')),
+                                                        );
                                                       }
                                                     },
-                                                  ),
+                                                  )
+                                                  ,
                                                 ),
                                                 IconButton(
                                                   icon: const Icon(Icons.add_circle_outline),
@@ -474,29 +473,27 @@ class _BuyProductPageState extends State<BuyProductPage> {
                               width: 50,
                               child: TextFormField(
                                 initialValue: quantity.toString(),
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                keyboardType: allowDecimal
+                                    ? const TextInputType.numberWithOptions(decimal: true)
+                                    : TextInputType.number,
+                                inputFormatters: allowDecimal
+                                    ? []
+                                    : [FilteringTextInputFormatter.digitsOnly],
                                 textAlign: TextAlign.center,
                                 decoration: const InputDecoration(border: InputBorder.none),
                                 onChanged: (value) {
                                   final parsed = double.tryParse(value);
-                                  if (parsed != null) {
-                                    if (!allowDecimal && parsed % 1 != 0) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Decimal quantity not allowed for $unit items')),
-                                      );
-                                      return;
-                                    }
-                                    if (parsed <= available) {
-                                      setState(() => productQuantities[id] = parsed);
-                                    } else {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Only $available items available')),
-                                      );
-                                    }
+                                  if (parsed != null && parsed <= available) {
+                                    setState(() => productQuantities[id] = parsed);
+                                    setDialogState(() {});
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Only $available items available')),
+                                    );
                                   }
-
                                 },
-                              ),
+                              )
+                              ,
                             ),
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
