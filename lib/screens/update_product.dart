@@ -72,6 +72,9 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
   final List<String> types = [];
   final List<String> units = [];
 
+  // *** NEW STATE VARIABLE FOR THE CHECKBOX ***
+  bool _allowDecimal = false;
+
   // User info
   String? currentUserEmail;
   String? adminId;
@@ -93,26 +96,17 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      // Get user info from SharedPreferences
       currentUserEmail = prefs.getString('user_email');
       adminId = prefs.getString('admin_id');
       employeeId = prefs.getString('employee_id');
       isEmployee = prefs.getBool('is_employee') ?? false;
-
-      print('UpdateProductPage - User Email: $currentUserEmail');
-      print('UpdateProductPage - Admin ID: $adminId');
-      print('UpdateProductPage - Employee ID: $employeeId');
-      print('UpdateProductPage - Is Employee: $isEmployee');
 
       if (currentUserEmail == null) {
         _showAccessDeniedMessage('No user email found. Please login again.');
         return;
       }
 
-      // If no admin_id in SharedPreferences, fall back to the old method
       if (adminId == null) {
-        print('No admin_id in SharedPreferences, using fallback method...');
         await _fallbackUserInitialization();
       }
 
@@ -131,11 +125,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
     }
   }
 
-  // Fallback method for cases where SharedPreferences doesn't have admin_id
   Future<void> _fallbackUserInitialization() async {
-    print('Using fallback user initialization method...');
-
-    // First, check if user is an admin
     final adminSnapshot = await FirebaseFirestore.instance
         .collection('admins')
         .where('email', isEqualTo: currentUserEmail)
@@ -143,25 +133,17 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
         .get();
 
     if (adminSnapshot.docs.isNotEmpty) {
-      // User is an admin
       adminId = adminSnapshot.docs.first.id;
       isEmployee = false;
-      print('Fallback: User is admin with ID: $adminId');
-
-      // Store in SharedPreferences for future use
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('admin_id', adminId!);
       await prefs.setBool('is_employee', false);
     } else {
-      // Check if user is an employee
       final employeeResult = await _findEmployeeAndAdmin();
       if (employeeResult != null) {
         adminId = employeeResult['adminId'];
         employeeId = employeeResult['employeeId'];
         isEmployee = true;
-        print('Fallback: User is employee under admin: $adminId');
-
-        // Store in SharedPreferences for future use
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('admin_id', adminId!);
         await prefs.setString('employee_id', employeeId!);
@@ -172,37 +154,17 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
 
   Future<Map<String, String>?> _findEmployeeAndAdmin() async {
     try {
-      print('Searching for employee with email: $currentUserEmail');
-
-      // Get all admins
-      final adminsSnapshot = await FirebaseFirestore.instance
-          .collection('admins')
-          .get();
-
-      print('Found ${adminsSnapshot.docs.length} admins to check');
-
+      final adminsSnapshot = await FirebaseFirestore.instance.collection('admins').get();
       for (var adminDoc in adminsSnapshot.docs) {
-        print('Checking admin: ${adminDoc.id}');
-
-        // Check employees under each admin
-        final employeesSnapshot = await FirebaseFirestore.instance
-            .collection('admins')
-            .doc(adminDoc.id)
+        final employeesSnapshot = await adminDoc.reference
             .collection('employees')
             .where('email', isEqualTo: currentUserEmail)
             .limit(1)
             .get();
-
         if (employeesSnapshot.docs.isNotEmpty) {
-          print('Found employee under admin ${adminDoc.id}');
-          return {
-            'adminId': adminDoc.id,
-            'employeeId': employeesSnapshot.docs.first.id,
-          };
+          return {'adminId': adminDoc.id, 'employeeId': employeesSnapshot.docs.first.id};
         }
       }
-
-      print('Employee not found under any admin');
     } catch (e) {
       print('Error finding employee: $e');
     }
@@ -223,20 +185,9 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
 
   Future<void> _loadCategories() async {
     if (adminId == null) return;
-
     try {
-      print('Loading categories for admin: $adminId');
-
-      final categorySnapshot = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId!)
-          .collection('categories')
-          .get();
-
+      final categorySnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId!).collection('categories').get();
       final categoryList = categorySnapshot.docs.map((doc) => doc['name'] as String).toList();
-
-      print('Loaded ${categoryList.length} categories: $categoryList');
-
       setState(() {
         categories = categoryList;
         types.clear();
@@ -245,32 +196,16 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
     } catch (e) {
       print('Error loading categories: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-          SnackBar(
-            content: Text('Error loading categories: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        ScaffoldMessenger.of(context as BuildContext).showSnackBar(SnackBar(content: Text('Error loading categories: $e')));
       }
     }
   }
 
   Future<void> _loadUnits() async {
     if (adminId == null) return;
-
     try {
-      print('Loading units for admin: $adminId');
-
-      final unitSnapshot = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId!)
-          .collection('units')
-          .get();
-
+      final unitSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId!).collection('units').get();
       final unitList = unitSnapshot.docs.map((doc) => doc['name'] as String).toList();
-
-      print('Loaded ${unitList.length} units: $unitList');
-
       setState(() {
         units.clear();
         units.addAll(unitList);
@@ -278,31 +213,17 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
     } catch (e) {
       print('Error loading units: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-          SnackBar(
-            content: Text('Error loading units: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        ScaffoldMessenger.of(context as BuildContext).showSnackBar(SnackBar(content: Text('Error loading units: $e')));
       }
     }
   }
 
   Future<void> _loadProducts() async {
     if (adminId == null) return;
-
     setState(() => isLoading = true);
-
     try {
-      print('Loading products for admin: $adminId');
-
-      final productSnapshot = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId!)
-          .collection('products')
-          .orderBy('name')
-          .get();
-
+      final productSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId!).collection('products').orderBy('name').get();
+      // *** FETCH 'allowDecimal' FIELD FROM FIRESTORE ***
       final List<Map<String, dynamic>> fetchedProducts = productSnapshot.docs.map((doc) {
         final data = doc.data();
         return {
@@ -314,12 +235,10 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
           'unit': data['unit'] ?? '',
           'category': data['category'] ?? '',
           'image': data['imagePath'] ?? '',
+          'allowDecimal': data['allowDecimal'] ?? false, // Handle potential null for older products
           'createdAt': data['createdAt'],
         };
       }).toList();
-
-      print('Loaded ${fetchedProducts.length} products');
-
       setState(() {
         allProducts = fetchedProducts;
         _applyFilters();
@@ -329,9 +248,7 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
       print('Error loading products: $e');
       setState(() => isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-          SnackBar(content: Text('Error loading products: $e')),
-        );
+        ScaffoldMessenger.of(context as BuildContext).showSnackBar(SnackBar(content: Text('Error loading products: $e')));
       }
     }
   }
@@ -340,38 +257,26 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
     setState(() {
       products = allProducts
           .where((item) => selectedCategory == null || item['category'] == selectedCategory)
-          .where((item) => item['name']
-          .toString()
-          .toLowerCase()
-          .contains(searchQuery.toLowerCase()))
+          .where((item) => item['name'].toString().toLowerCase().contains(searchQuery.toLowerCase()))
           .toList();
     });
   }
 
-  // Upload image to Cloudinary
   Future<String?> _uploadToCloudinary(String imagePath) async {
     try {
       setState(() => isUploadingImage = true);
-
       final url = Uri.parse('https://api.cloudinary.com/v1_1/$CLOUD_NAME/image/upload');
-      final request = http.MultipartRequest('POST', url);
-
-      request.fields['upload_preset'] = UPLOAD_PRESET;
-      final file = await http.MultipartFile.fromPath('file', imagePath);
-      request.files.add(file);
-
+      final request = http.MultipartRequest('POST', url)
+        ..fields['upload_preset'] = UPLOAD_PRESET
+        ..files.add(await http.MultipartFile.fromPath('file', imagePath));
       final response = await request.send();
-
       if (response.statusCode == 200) {
         final responseData = await response.stream.bytesToString();
-        final jsonResponse = json.decode(responseData);
-        return jsonResponse['secure_url'];
+        return json.decode(responseData)['secure_url'];
       } else {
-        print('Cloudinary upload failed with status: ${response.statusCode}');
         return null;
       }
     } catch (e) {
-      print('Error uploading to Cloudinary: $e');
       return null;
     } finally {
       setState(() => isUploadingImage = false);
@@ -389,66 +294,41 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
       selectedUnit = product['unit'];
       selectedImage = product['image'];
       cloudinaryImageUrl = product['image'].startsWith('http') ? product['image'] : null;
+      // *** INITIALIZE THE CHECKBOX STATE ***
+      _allowDecimal = product['allowDecimal'] ?? false;
     });
   }
 
   Future<void> _selectImage() async {
     final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
-      // First, save locally for immediate display
       final appDir = await getApplicationDocumentsDirectory();
       final fileName = basename(pickedFile.path);
       final savedImage = await File(pickedFile.path).copy('${appDir.path}/$fileName');
-
       setState(() {
         selectedImage = savedImage.path;
         cloudinaryImageUrl = null;
       });
-
-      // Then upload to Cloudinary
       final cloudinaryUrl = await _uploadToCloudinary(savedImage.path);
       if (cloudinaryUrl != null) {
-        setState(() {
-          cloudinaryImageUrl = cloudinaryUrl;
-        });
-        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Image uploaded successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        setState(() => cloudinaryImageUrl = cloudinaryUrl);
+        if (mounted) ScaffoldMessenger.of(context as BuildContext).showSnackBar(const SnackBar(content: Text('✅ Image uploaded successfully!'), backgroundColor: Colors.green));
       } else {
-        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ Failed to upload image. Using local copy.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        if (mounted) ScaffoldMessenger.of(context as BuildContext).showSnackBar(const SnackBar(content: Text('⚠️ Failed to upload image. Using local copy.'), backgroundColor: Colors.orange));
       }
     }
   }
 
   Future<void> _updateProduct() async {
-    if (selectedProduct == null ||
-        nameController.text.isEmpty ||
-        rateController.text.isEmpty ||
-        quantityController.text.isEmpty ||
-        selectedType == null ||
-        selectedUnit == null ||
-        selectedImage == null) {
-      ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields and select image')),
-      );
+    if (selectedProduct == null || nameController.text.isEmpty || rateController.text.isEmpty || quantityController.text.isEmpty || selectedType == null || selectedUnit == null || selectedImage == null) {
+      ScaffoldMessenger.of(context as BuildContext).showSnackBar(const SnackBar(content: Text('Please fill all fields and select image')));
       return;
     }
-
     setState(() => isUpdating = true);
-
     try {
-      if (adminId == null) {
-        throw Exception("Admin ID not found.");
-      }
+      if (adminId == null) throw Exception("Admin ID not found.");
 
+      // *** ADD 'allowDecimal' to the data being sent to Firestore ***
       final productData = {
         'name': nameController.text.trim(),
         'rate': rateController.text.trim(),
@@ -457,43 +337,23 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
         'imagePath': cloudinaryImageUrl ?? selectedImage!,
         'quantity': quantityController.text.trim(),
         'unit': selectedUnit!,
+        'allowDecimal': _allowDecimal, // Save the checkbox state
         'updatedAt': Timestamp.now(),
-        'updatedBy': isEmployee ? 'employee' : 'admin', // Track who updated the product
+        'updatedBy': isEmployee ? 'employee' : 'admin',
         'updatedByEmail': currentUserEmail,
       };
 
-      print('Updating product in admin: $adminId');
+      await FirebaseFirestore.instance.collection('admins').doc(adminId!).collection('products').doc(selectedProduct!['id']).update(productData);
 
-      // Update in Firestore (same for both admin and employee)
-      await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId!)
-          .collection('products')
-          .doc(selectedProduct!['id'])
-          .update(productData);
-
-      // Also update in local DB if you're still using it
-      await DBHelper.updateProduct(
-        selectedProduct!['id'].hashCode,
-        nameController.text.trim(),
-        rateController.text.trim(),
-        originalRateController.text.trim(),
-        selectedType!,
-        cloudinaryImageUrl ?? selectedImage!,
-        quantityController.text.trim(),
-        selectedUnit!,
-      );
-
-      final successMessage = isEmployee
-          ? '✅ Product updated in admin\'s inventory successfully!'
-          : '✅ Product updated successfully!';
-
-      ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-        SnackBar(
-          content: Text(successMessage),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // *** UPDATED SUCCESS MESSAGE ***
+      if (mounted) {
+        ScaffoldMessenger.of(context as BuildContext).showSnackBar(
+          const SnackBar(
+            content: Text('Product updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
 
       setState(() {
         selectedProduct = null;
@@ -505,18 +365,13 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
         selectedUnit = null;
         selectedImage = null;
         cloudinaryImageUrl = null;
+        _allowDecimal = false; // Reset checkbox state
         isUpdating = false;
       });
-
       _loadProducts();
     } catch (e) {
       setState(() => isUpdating = false);
-      ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-        SnackBar(
-          content: Text('❌ Error updating product: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) ScaffoldMessenger.of(context as BuildContext).showSnackBar(SnackBar(content: Text('❌ Error updating product: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -524,464 +379,127 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
   Widget build(BuildContext context) {
     if (isInitializing) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF9F9F9),
-        appBar: AppBar(
-          title: const Text('Update Product'),
-          backgroundColor: Colors.deepPurple,
-          foregroundColor: Colors.white,
-          elevation: 2,
-        ),
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Loading update product page...'),
-            ],
-          ),
-        ),
+        appBar: AppBar(title: const Text('Update Product'), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+        body: const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('Loading update product page...')])),
       );
     }
-
     if (adminId == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF9F9F9),
-        appBar: AppBar(
-          title: const Text('Update Product'),
-          backgroundColor: Colors.deepPurple,
-          foregroundColor: Colors.white,
-          elevation: 2,
-        ),
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 64, color: Colors.red),
-              SizedBox(height: 16),
-              Text(
-                'Access Denied',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Text('You are not authorized to update products.'),
-            ],
-          ),
-        ),
+        appBar: AppBar(title: const Text('Update Product'), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+        body: const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.error_outline, size: 64, color: Colors.red), SizedBox(height: 16), Text('Access Denied', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), SizedBox(height: 8), Text('You are not authorized to update products.')])),
       );
     }
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              selectedProduct == null ? 'Update Product' : 'Edit ${selectedProduct!['name']}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            if (isEmployee)
-              Text(
-                'Employee Mode',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withOpacity(0.8),
-                ),
-              ),
-          ],
-        ),
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(selectedProduct == null ? 'Update Product' : 'Edit ${selectedProduct!['name']}', style: const TextStyle(fontWeight: FontWeight.bold)), if (isEmployee) Text('Employee Mode', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.8)))]),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
         elevation: 4,
-        actions: [
-          if (selectedProduct != null)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => setState(() => selectedProduct = null),
-              tooltip: 'Cancel Edit',
-            ),
-        ],
+        actions: [if (selectedProduct != null) IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => selectedProduct = null), tooltip: 'Cancel Edit')],
       ),
       body: selectedProduct == null
-          ? Column(
-        children: [
-
-          // Category filter chips
-          if (categories.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: SizedBox(
-                height: 40,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: categories.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      final isSelected = selectedCategory == null;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                            label: const Text(
-                              'All',
-                              style: TextStyle(color: Colors.black), // White text
-                            ),
-                          selected: isSelected,
-                          selectedColor: Colors.deepPurple,
-                          onSelected: (_) {
-                            setState(() => selectedCategory = null);
-                            _applyFilters();
-                          },
-                        ),
-                      );
-                    }
-
-                    final cat = categories[index - 1];
-                    final isSelected = cat == selectedCategory;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: Text(cat,
-                          style: TextStyle(
-                            color:  Colors.black, // White text if selected
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedColor: Colors.deepPurple,
-                        onSelected: (_) {
-                          setState(() {
-                            selectedCategory = isSelected ? null : cat;
-                          });
-                          _applyFilters();
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              decoration: InputDecoration(
-                labelText: 'Search Products',
-                hintText: 'Enter product name to search...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.grey[50],
-              ),
-              onChanged: (value) {
-                searchQuery = value;
-                _applyFilters();
-              },
-            ),
-          ),
-
-          // Products list
-          Expanded(
-            child: isLoading
-                ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading products...'),
-                ],
-              ),
-            )
-                : products.isEmpty
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inventory_2_outlined,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    searchQuery.isNotEmpty || selectedCategory != null
-                        ? "No products found matching your search."
-                        : "No products available to update.",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  if (searchQuery.isNotEmpty || selectedCategory != null) ...[
-                    const SizedBox(height: 8),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          searchQuery = "";
-                          selectedCategory = null;
-                        });
-                        _applyFilters();
-                      },
-                      child: const Text("Clear Filters"),
-                    ),
-                  ],
-                ],
-              ),
-            )
-                : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: products.length,
+          ? Column(children: [
+        if (categories.isNotEmpty)
+          SizedBox(
+            height: 56,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.all(8),
+              itemCount: categories.length + 1,
               itemBuilder: (context, index) {
-                final item = products[index];
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(12),
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: buildProductImage(item['image'], size: 60),
-                    ),
-                    title: Text(
-                      item['name'],
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(
-                          "Rate: ₹${item['rate']} • Category: ${item['category']}",
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        Text(
-                          "Stock: ${item['quantity']} ${item['unit']}",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                    trailing: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.deepPurple[50],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.deepPurple),
-                        onPressed: () => _startUpdate(item),
-                        tooltip: "Edit Product",
-                      ),
-                    ),
-                  ),
-                );
+                if (index == 0) {
+                  final isSelected = selectedCategory == null;
+                  return Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text('All', style: TextStyle(color: isSelected ? Colors.white : Colors.black)), selected: isSelected, selectedColor: Colors.deepPurple, onSelected: (_) { setState(() => selectedCategory = null); _applyFilters(); }));
+                }
+                final cat = categories[index - 1];
+                final isSelected = cat == selectedCategory;
+                return Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: ChoiceChip(label: Text(cat, style: TextStyle(color: isSelected ? Colors.white : Colors.black)), selected: isSelected, selectedColor: Colors.deepPurple, onSelected: (_) { setState(() => selectedCategory = isSelected ? null : cat); _applyFilters(); }));
               },
             ),
           ),
-
-          // Bottom info bar
-          if (products.isNotEmpty && !isLoading)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                border: Border(top: BorderSide(color: Colors.grey[300]!)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "${products.length} product${products.length == 1 ? '' : 's'} found",
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                  if (searchQuery.isNotEmpty || selectedCategory != null)
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          searchQuery = "";
-                          selectedCategory = null;
-                        });
-                        _applyFilters();
-                      },
-                      icon: const Icon(Icons.clear_all, size: 16),
-                      label: const Text("Clear Filters"),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.deepPurple,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      )
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: TextField(decoration: InputDecoration(labelText: 'Search Products', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), prefixIcon: const Icon(Icons.search), filled: true, fillColor: Colors.grey[50]), onChanged: (value) { searchQuery = value; _applyFilters(); }),
+        ),
+        Expanded(
+          child: isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : products.isEmpty
+              ? Center(child: Text(searchQuery.isNotEmpty || selectedCategory != null ? "No products found matching your search." : "No products available to update.", style: TextStyle(fontSize: 16, color: Colors.grey[600])))
+              : ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: products.length,
+            itemBuilder: (context, index) {
+              final item = products[index];
+              return Card(
+                elevation: 3,
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(contentPadding: const EdgeInsets.all(12), leading: ClipRRect(borderRadius: BorderRadius.circular(8), child: buildProductImage(item['image'], size: 60)), title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const SizedBox(height: 4), Text("Rate: ₹${item['rate']} • Category: ${item['category']}", style: const TextStyle(fontSize: 14)), Text("Stock: ${item['quantity']} ${item['unit']}", style: TextStyle(fontSize: 12, color: Colors.grey[600]))]), trailing: IconButton(icon: const Icon(Icons.edit, color: Colors.deepPurple), onPressed: () => _startUpdate(item), tooltip: "Edit Product")),
+              );
+            },
+          ),
+        ),
+      ])
           : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            if (isUpdating || isUploadingImage)
-              LinearProgressIndicator(
-                color: Colors.deepPurple,
-                backgroundColor: Colors.deepPurple.shade100,
-              ),
-            const SizedBox(height: 16),
-
-            // Image selection
-            GestureDetector(
-              onTap: (isUpdating || isUploadingImage) ? null : _selectImage,
-              child: Card(
-                elevation: 3,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                child: Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(15),
-                    color: Colors.grey[200],
-                  ),
-                  child: Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(15),
-                        child: buildProductImage(
-                          cloudinaryImageUrl ?? selectedImage,
-                          size: 220,
-                        ),
-                      ),
-                      if (isUploadingImage)
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(15),
-                            color: Colors.black.withOpacity(0.5),
-                          ),
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(color: Colors.white),
-                                SizedBox(height: 10),
-                                Text(
-                                  'Uploading image...',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      if (!isUploadingImage)
-                        Positioned(
-                          bottom: 10,
-                          right: 10,
-                          child: CircleAvatar(
-                            backgroundColor: Colors.deepPurple,
-                            child: const Icon(
-                              Icons.edit,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+        child: Column(children: [
+          if (isUpdating || isUploadingImage) LinearProgressIndicator(color: Colors.deepPurple, backgroundColor: Colors.deepPurple.shade100),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: (isUpdating || isUploadingImage) ? null : _selectImage,
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              child: Container(
+                height: 220,
+                width: double.infinity,
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), color: Colors.grey[200]),
+                child: Stack(children: [
+                  ClipRRect(borderRadius: BorderRadius.circular(15), child: buildProductImage(cloudinaryImageUrl ?? selectedImage, size: 220)),
+                  if (isUploadingImage) Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), color: Colors.black.withOpacity(0.5)), child: const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(color: Colors.white), SizedBox(height: 10), Text('Uploading image...', style: TextStyle(color: Colors.white))]))),
+                  if (!isUploadingImage) Positioned(bottom: 10, right: 10, child: CircleAvatar(backgroundColor: Colors.deepPurple, child: const Icon(Icons.edit, color: Colors.white, size: 20))),
+                ]),
               ),
             ),
+          ),
+          const SizedBox(height: 24),
+          _buildTextField(nameController, 'Product Name', Icons.shopping_bag),
+          const SizedBox(height: 16),
+          _buildTextField(rateController, 'Rate', Icons.currency_rupee),
+          const SizedBox(height: 16),
+          _buildTextField(originalRateController, 'Original Rate', Icons.currency_rupee),
+          const SizedBox(height: 16),
+          _buildTextField(quantityController, 'Quantity', Icons.production_quantity_limits),
+          const SizedBox(height: 20),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.deepPurple.shade100), borderRadius: BorderRadius.circular(12)), child: DropdownButtonHideUnderline(child: DropdownButton<String>(isExpanded: true, value: selectedType, hint: const Text("Choose Category"), icon: const Icon(Icons.arrow_drop_down), items: types.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(), onChanged: (value) => setState(() => selectedType = value)))),
+          const SizedBox(height: 16),
+          Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.deepPurple.shade100), borderRadius: BorderRadius.circular(12)), child: DropdownButtonHideUnderline(child: DropdownButton<String>(isExpanded: true, value: selectedUnit, hint: const Text("Choose Unit"), icon: const Icon(Icons.arrow_drop_down), items: units.map((unit) => DropdownMenuItem(value: unit, child: Text(unit))).toList(), onChanged: (value) => setState(() => selectedUnit = value)))),
 
-            const SizedBox(height: 24),
-            _buildTextField(nameController, 'Product Name', Icons.shopping_bag),
-            const SizedBox(height: 16),
-            _buildTextField(rateController, 'Rate', Icons.currency_rupee),
-            const SizedBox(height: 16),
-            _buildTextField(originalRateController, 'Original Rate', Icons.currency_rupee),
-            const SizedBox(height: 16),
-            _buildTextField(quantityController, 'Quantity', Icons.production_quantity_limits),
-            const SizedBox(height: 20),
+          // *** CHECKBOX ADDED TO THE UPDATE FORM ***
+          const SizedBox(height: 10),
+          CheckboxListTile(
+            title: const Text("Allow selling in decimal quantities"),
+            value: _allowDecimal,
+            onChanged: (bool? value) {
+              setState(() {
+                _allowDecimal = value ?? false;
+              });
+            },
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            activeColor: Colors.deepPurple,
+          ),
+          const SizedBox(height: 20),
 
-            // Category dropdown
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.deepPurple.shade100),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: selectedType,
-                  hint: const Text("Choose Category"),
-                  icon: const Icon(Icons.arrow_drop_down),
-                  items: types.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-                  onChanged: (value) => setState(() => selectedType = value),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Unit dropdown
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.deepPurple.shade100),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: selectedUnit,
-                  hint: const Text("Choose Unit"),
-                  icon: const Icon(Icons.arrow_drop_down),
-                  items: units.map((unit) => DropdownMenuItem(value: unit, child: Text(unit))).toList(),
-                  onChanged: (value) => setState(() => selectedUnit = value),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            // Update button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: (isUpdating || isUploadingImage) ? null : _updateProduct,
-                icon: const Icon(Icons.update),
-                label: const Text("Update Product"),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.deepPurple,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            // Cancel button
-            TextButton(
-              onPressed: () => setState(() => selectedProduct = null),
-              child: const Text(
-                "Cancel",
-                style: TextStyle(color: Colors.red, fontSize: 16),
-              ),
-            ),
-          ],
-        ),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(onPressed: (isUpdating || isUploadingImage) ? null : _updateProduct, icon: const Icon(Icons.update), label: const Text("Update Product"), style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)))),
+          ),
+          const SizedBox(height: 10),
+          TextButton(onPressed: () => setState(() => selectedProduct = null), child: const Text("Cancel", style: TextStyle(color: Colors.red, fontSize: 16))),
+        ]),
       ),
     );
   }
@@ -989,8 +507,9 @@ class _UpdateProductPageState extends State<UpdateProductPage> {
   Widget _buildTextField(TextEditingController controller, String hint, IconData icon) {
     return TextField(
       controller: controller,
+      // *** KEYBOARD TYPE CORRECTED TO ALLOW DECIMALS ***
       keyboardType: hint.toLowerCase().contains('rate') || hint.toLowerCase().contains('quantity')
-          ? TextInputType.number
+          ? const TextInputType.numberWithOptions(decimal: true)
           : null,
       decoration: InputDecoration(
         labelText: hint,

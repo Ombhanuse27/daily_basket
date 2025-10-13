@@ -40,6 +40,9 @@ class _AddProductPageState extends State<AddProductPage> {
   final unitController = TextEditingController();
   final originalRateController = TextEditingController();
 
+  // New state for the checkbox
+  bool _allowDecimal = false;
+
   bool isLoading = false;
   bool isUploadingImage = false;
   bool isInitializing = true;
@@ -378,10 +381,6 @@ class _AddProductPageState extends State<AddProductPage> {
               ),
             const SizedBox(height: 10),
 
-            // Debug info (remove in production)
-
-
-
             GestureDetector(
               onTap: isUploadingImage ? null : _selectImage,
               child: Card(
@@ -522,7 +521,24 @@ class _AddProductPageState extends State<AddProductPage> {
                 ),
             ],
 
-            const SizedBox(height: 30),
+            const SizedBox(height: 10),
+
+            // *** NEW WIDGET ADDED HERE ***
+            CheckboxListTile(
+              title: const Text("Allow selling in decimal quantities"),
+              value: _allowDecimal,
+              onChanged: (bool? value) {
+                setState(() {
+                  _allowDecimal = value ?? false;
+                });
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              activeColor: Colors.deepPurple,
+            ),
+            // ***************************
+
+            const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -547,7 +563,7 @@ class _AddProductPageState extends State<AddProductPage> {
     return TextField(
       controller: controller,
       keyboardType: hint.toLowerCase().contains('rate') || hint.toLowerCase().contains('quantity')
-          ? TextInputType.number
+          ? const TextInputType.numberWithOptions(decimal: true) // Allow decimal for all number fields
           : null,
       decoration: InputDecoration(
         labelText: hint,
@@ -618,6 +634,7 @@ class _AddProductPageState extends State<AddProductPage> {
         throw Exception("Admin ID not found.");
       }
 
+      // *** MODIFIED PRODUCT DATA ***
       final productData = {
         'name': nameController.text.trim(),
         'rate': rateController.text.trim(),
@@ -626,10 +643,12 @@ class _AddProductPageState extends State<AddProductPage> {
         'imagePath': cloudinaryImageUrl ?? selectedImage ?? dummyImg, // Use Cloudinary URL if available
         'quantity': quantityController.text.trim(),
         'unit': unitToUse,
+        'allowDecimal': _allowDecimal, // Save the checkbox value
         'createdAt': Timestamp.now(),
         'addedBy': isEmployee ? 'employee' : 'admin', // Track who added the product
         'addedByEmail': currentUserEmail,
       };
+      // ***************************
 
       print('Adding product to admin: $adminId');
 
@@ -664,6 +683,7 @@ class _AddProductPageState extends State<AddProductPage> {
         await _loadUnits();
       }
 
+      // *** CLEARING STATE ***
       setState(() {
         nameController.clear();
         rateController.clear();
@@ -675,14 +695,12 @@ class _AddProductPageState extends State<AddProductPage> {
         cloudinaryImageUrl = null;
         categoryController.clear();
         unitController.clear();
+        _allowDecimal = false; // Reset the checkbox
       });
-
-      final successMessage = isEmployee
-          ? '✅ Product added to admin\'s inventory successfully!'
-          : '✅ Product uploaded successfully!';
+      // *********************
 
       ScaffoldMessenger.of(context as BuildContext).showSnackBar(
-        SnackBar(content: Text(successMessage)),
+        const SnackBar(content: Text('✅ Product added successfully!')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context as BuildContext).showSnackBar(

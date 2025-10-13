@@ -1,12 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- ADD THIS IMPORT
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+
+// *** ADD THIS IMPORT TO NAVIGATE TO THE BILLS PAGE ***
+import 'view_bills_page.dart';
 
 // Enum to manage which view is currently selected.
 enum DataView { statistics, sales }
@@ -218,15 +221,12 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
     return 'Filter: ${formatter.format(_startDate!)} - ${formatter.format(_endDate!)}';
   }
 
-  // ############### MODIFIED FUNCTION ###############
   Future<void> _exportToPDF() async {
-    // 1. Load fonts that support the Rupee symbol
     final regularFontData = await rootBundle.load("assets/fonts/NotoSans-Regular.ttf");
     final ttfRegular = pw.Font.ttf(regularFontData);
     final boldFontData = await rootBundle.load("assets/fonts/NotoSans-Bold.ttf");
     final ttfBold = pw.Font.ttf(boldFontData);
 
-    // 2. Create a theme with the loaded fonts
     final theme = pw.ThemeData.withFont(
       base: ttfRegular,
       bold: ttfBold,
@@ -234,9 +234,8 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
 
     final pdf = pw.Document();
 
-    // 3. Apply the theme to the page
     pdf.addPage(pw.MultiPage(
-        theme: theme, // <-- APPLY THEME HERE
+        theme: theme,
         pageFormat: PdfPageFormat.a4.landscape,
         build: (context) => [
           pw.Header(level: 0, child: pw.Text("Product Statistics Report", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
@@ -260,9 +259,8 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
     ));
 
     if (filteredSalesData.isNotEmpty) {
-      // 4. Apply the theme to the second page as well
       pdf.addPage(pw.MultiPage(
-          theme: theme, // <-- APPLY THEME HERE
+          theme: theme,
           build: (context) => [
             pw.Header(level: 0, child: pw.Text("Sales Details Report", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
             pw.Text(_getFilterLabel().replaceAll('Filter: ', 'Period: ')),
@@ -326,6 +324,28 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                   else
                     _buildSalesHistoryView(),
                   const SizedBox(height: 24),
+
+                  // *** NEW BUTTON ADDED HERE ***
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ViewBillsPage()),
+                      );
+                    },
+                    icon: const Icon(Icons.list_alt_rounded),
+                    label: const Text("View All Bills"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                  const SizedBox(height: 12), // Spacing between buttons
+                  // ***************************
+
                   ElevatedButton.icon(
                     onPressed: _exportToPDF,
                     icon: const Icon(Icons.picture_as_pdf),
@@ -396,7 +416,7 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                    Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.cyan), overflow: TextOverflow.ellipsis),
+                    Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87), overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),

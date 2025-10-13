@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 import 'db_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart'; // Import for date formatting
 
 class BuyProductPage extends StatefulWidget {
   const BuyProductPage({super.key});
@@ -72,11 +73,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
   void initState() {
     super.initState();
     _initializeUser();
-  }
-
-  bool isDecimalAllowed(String unit) {
-    final lower = unit.toLowerCase();
-    return !(lower.contains("piece") || lower.contains("packet") || lower.contains("unit") || lower.contains("bottle"));
   }
 
   Future<void> _initializeUser() async {
@@ -233,6 +229,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
           'unit': data['unit'] ?? '',
           'type': data['category'] ?? '',
           'image': data['imagePath'] ?? '',
+          'allowDecimal': data['allowDecimal'] ?? false,
         };
       }).toList();
 
@@ -275,7 +272,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
     return total;
   }
 
-  // ##### FIXED CUSTOMER DETAILS DIALOG #####
   void _showCustomerDetailsDialog() {
     final customerNameController = TextEditingController();
     String paymentStatus = 'Paid'; // Default value
@@ -288,7 +284,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('Confirm Purchase'),
-              content: SingleChildScrollView( // Keeps content from overflowing
+              content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -318,19 +314,16 @@ class _BuyProductPageState extends State<BuyProductPage> {
                   ],
                 ),
               ),
-              // The actions list below places the buttons correctly.
               actions: [
-                // This "Cancel" button appears on the left.
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Cancel'),
                 ),
-                // This "Confirm" button appears on the right.
                 ElevatedButton(
                   onPressed: () {
                     final name = customerNameController.text.trim();
                     if (name.isNotEmpty) {
-                      Navigator.of(context).pop(); // Close this dialog
+                      Navigator.of(context).pop();
                       _generatePdfBill(name, paymentStatus);
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -352,6 +345,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
+  // **** FUNCTION MODIFIED TO SAVE BILL ****
   Future<void> _generatePdfBill(String customerName, String paymentStatus) async {
     if (adminId == null) return;
 
@@ -369,12 +363,16 @@ class _BuyProductPageState extends State<BuyProductPage> {
     }
 
     try {
+      List<Map<String, dynamic>> billItems = [];
+
       for (var item in selectedItems) {
         String productId = item['id'];
         double qty = productQuantities[productId] ?? 1.0;
         double currentQty = double.tryParse(item['quantity'].toString()) ?? 0;
+        double rate = double.tryParse(item['rate'].toString()) ?? 0;
         double newQty = currentQty - qty;
 
+        // Update product quantity
         await FirebaseFirestore.instance
             .collection('admins')
             .doc(adminId)
@@ -382,12 +380,13 @@ class _BuyProductPageState extends State<BuyProductPage> {
             .doc(productId)
             .update({'quantity': newQty.toString()});
 
+        // Record individual sale
         Map<String, dynamic> saleData = {
           'productId': productId, 'productName': item['name'],
-          'rate': double.tryParse(item['rate'].toString()) ?? 0,
+          'rate': rate,
           'originalRate': double.tryParse(item['originalRate'].toString()) ?? 0,
           'quantity': qty, 'unit': item['unit'], 'category': item['type'],
-          'subtotal': (double.tryParse(item['rate'].toString()) ?? 0) * qty,
+          'subtotal': rate * qty,
           'imagePath': item['image'], 'timestamp': FieldValue.serverTimestamp(),
           'saleDate': DateTime.now().toIso8601String(),
           'soldBy': currentUserEmail, 'soldByType': isEmployee ? 'employee' : 'admin',
@@ -395,9 +394,32 @@ class _BuyProductPageState extends State<BuyProductPage> {
         };
         await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').add(saleData);
 
-        await DBHelper.reduceProductQuantity(productId.hashCode, qty);
-        await DBHelper.recordSale(productId.hashCode, qty);
+        // Add item to the list for the consolidated bill
+        billItems.add({
+          'productName': item['name'],
+          'quantity': qty,
+          'unit': item['unit'],
+          'rate': rate,
+          'subtotal': rate * qty,
+        });
       }
+
+      // *** NEW: CREATE AND SAVE THE CONSOLIDATED BILL DOCUMENT ***
+      final totalAmount = _calculateTotalAmount();
+      Map<String, dynamic> billData = {
+        'customerName': customerName,
+        'paymentStatus': paymentStatus,
+        'totalAmount': totalAmount,
+        'billDate': Timestamp.now(),
+        'soldBy': currentUserEmail,
+        'items': billItems, // Store the list of items
+      };
+      await FirebaseFirestore.instance
+          .collection('admins')
+          .doc(adminId)
+          .collection('bills')
+          .add(billData);
+      // **********************************************************
 
       pdf.addPage(
         pw.MultiPage(
@@ -430,6 +452,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error processing purchase: $e'), backgroundColor: Colors.red));
     }
   }
+  // **********************************
 
   pw.Widget _buildHeader() {
     return pw.Column(
@@ -456,8 +479,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
 
   pw.Widget _buildBillInfo(String customerName) {
     final now = DateTime.now();
-    final date = "${now.day}/${now.month}/${now.year}";
-    final time = "${now.hour}:${now.minute.toString().padLeft(2, '0')}";
+    final date = DateFormat('dd/MM/yyyy').format(now);
+    final time = DateFormat('hh:mm a').format(now);
 
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -666,8 +689,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
                 final item = products[index];
                 String id = item['id'] as String;
                 double available = double.tryParse(item['quantity'].toString()) ?? 0;
-                final unit = item['unit'] ?? '';
-                final allowDecimal = isDecimalAllowed(unit);
+
+                final bool allowDecimal = item['allowDecimal'] as bool? ?? false;
 
                 return Card(
                   elevation: 3,
@@ -740,7 +763,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                             onPressed: () {
                                               final currentQty = productQuantities[id] ?? 1.0;
                                               if (currentQty > 1) {
-                                                final newQty = allowDecimal ? currentQty - 1 : (currentQty - 1).floorToDouble();
+                                                final newQty = currentQty - 1;
                                                 setState(() {
                                                   productQuantities[id] = newQty;
                                                   _quantityControllers[id]?.text = newQty.toString();
@@ -749,11 +772,11 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                             },
                                           ),
                                           SizedBox(
-                                            width: 35,
+                                            width: 45,
                                             child: TextField(
                                               controller: _quantityControllers[id],
                                               keyboardType: allowDecimal ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.number,
-                                              inputFormatters: allowDecimal ? [] : [FilteringTextInputFormatter.digitsOnly],
+                                              inputFormatters: allowDecimal ? [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))] : [FilteringTextInputFormatter.digitsOnly],
                                               textAlign: TextAlign.center,
                                               style: const TextStyle(fontSize: 13),
                                               decoration: const InputDecoration(border: InputBorder.none, contentPadding: EdgeInsets.zero),
@@ -775,7 +798,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                             constraints: const BoxConstraints(minWidth: 28, minHeight: 32),
                                             onPressed: () {
                                               final currentQty = productQuantities[id] ?? 1.0;
-                                              final newQty = allowDecimal ? currentQty + 1 : (currentQty + 1).floorToDouble();
+                                              final newQty = currentQty + 1;
                                               if (newQty <= available) {
                                                 setState(() {
                                                   productQuantities[id] = newQty;
@@ -855,14 +878,12 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
-  // ##### NEW AND IMPROVED CART DIALOG #####
   void _showCartDialog() {
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            // Recalculate cart items inside the builder to ensure it's always up to date
             final cartItems = allProducts.where((p) => selectedProducts[p['id']] == true).toList();
 
             return AlertDialog(
@@ -874,13 +895,11 @@ class _BuyProductPageState extends State<BuyProductPage> {
                 ],
               ),
               contentPadding: const EdgeInsets.only(top: 16.0),
-              // Use a Column to structure the content with a live total
               content: SizedBox(
                 width: double.maxFinite,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Make the list expandable but constrained in height
                     Flexible(
                       child: cartItems.isEmpty
                           ? const Padding(
@@ -897,10 +916,9 @@ class _BuyProductPageState extends State<BuyProductPage> {
                           final available = double.tryParse(item['quantity'].toString()) ?? 0;
                           final quantity = productQuantities[id] ?? 1.0;
                           final unit = item['unit'] ?? '';
-                          final allowDecimal = isDecimalAllowed(unit);
                           final rate = double.tryParse(item['rate'].toString()) ?? 0;
+                          final bool allowDecimal = item['allowDecimal'] as bool? ?? false;
 
-                          // New mobile-friendly card layout for each item
                           return Card(
                             elevation: 1,
                             margin: const EdgeInsets.symmetric(vertical: 5),
@@ -909,7 +927,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                               padding: const EdgeInsets.all(8.0),
                               child: Column(
                                 children: [
-                                  // Top row for product info
                                   Row(
                                     children: [
                                       ClipRRect(borderRadius: BorderRadius.circular(8), child: buildProductImage(item['image'], size: 50)),
@@ -926,11 +943,9 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                     ],
                                   ),
                                   const SizedBox(height: 8),
-                                  // Bottom row for actions
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      // Compact Quantity Controller
                                       Container(
                                         height: 32,
                                         decoration: BoxDecoration(
@@ -946,10 +961,10 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                               onPressed: () {
                                                 if (quantity > 1) {
                                                   setState(() {
-                                                    productQuantities[id] = allowDecimal ? quantity - 1 : (quantity - 1).floorToDouble();
-                                                    _quantityControllers[id]?.text = productQuantities[id]!.toString();
+                                                    productQuantities[id] = quantity - 1;
+                                                    _quantityControllers[id]?.text = productQuantities[id]!.toStringAsFixed(allowDecimal ? 2 : 0);
                                                   });
-                                                  setDialogState(() {}); // Rebuild dialog
+                                                  setDialogState(() {});
                                                 }
                                               },
                                             ),
@@ -961,10 +976,10 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                               onPressed: () {
                                                 if (quantity + 1 <= available) {
                                                   setState(() {
-                                                    productQuantities[id] = allowDecimal ? quantity + 1 : (quantity + 1).floorToDouble();
-                                                    _quantityControllers[id]?.text = productQuantities[id]!.toString();
+                                                    productQuantities[id] = quantity + 1;
+                                                    _quantityControllers[id]?.text = productQuantities[id]!.toStringAsFixed(allowDecimal ? 2 : 0);
                                                   });
-                                                  setDialogState(() {}); // Rebuild dialog
+                                                  setDialogState(() {});
                                                 } else {
                                                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Only $available items available')));
                                                 }
@@ -973,7 +988,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                           ],
                                         ),
                                       ),
-                                      // Subtotal and Delete button
                                       Row(
                                         children: [
                                           Text('₹${(rate * quantity).toStringAsFixed(2)}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
@@ -981,7 +995,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                             icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
                                             onPressed: () {
                                               setState(() => selectedProducts[id] = false);
-                                              setDialogState(() {}); // Rebuild dialog
+                                              setDialogState(() {});
                                               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${item['name']} removed from cart')));
                                             },
                                           ),
@@ -996,7 +1010,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                         },
                       ),
                     ),
-                    // Live Total inside the cart dialog
                     if (cartItems.isNotEmpty) ...[
                       const Divider(height: 1),
                       Padding(
@@ -1035,6 +1048,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
           },
         );
       },
-    ).then((_) => setState(() {})); // Rebuild the main page when dialog closes to reflect changes
+    ).then((_) => setState(() {}));
   }
 }

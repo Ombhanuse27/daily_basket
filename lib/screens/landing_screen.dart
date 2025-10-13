@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,6 +8,7 @@ import 'package:daily_basket/screens/login_screen.dart';
 import 'package:daily_basket/screens/dashboard.dart';
 import 'package:daily_basket/screens/emp_dashboard.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'dart:ui'; // Required for ImageFilter.blur
 
 // --- MAIN LANDING SCREEN WIDGET ---
 class LandingScreen extends StatefulWidget {
@@ -21,6 +23,7 @@ class _LandingScreenState extends State<LandingScreen>
   // Animation Controllers
   late AnimationController _entranceController;
   late AnimationController _progressController;
+  late AnimationController _backgroundController; // For animated background
 
   // Parallax effect state
   double _parallaxX = 0.0;
@@ -29,10 +32,11 @@ class _LandingScreenState extends State<LandingScreen>
 
   String _statusMessage = "Initializing your workspace...";
 
-  // Neumorphic colors
-  static const Color _backgroundColor = Color(0xFFE0E5EC);
-  static const Color _darkShadow = Color(0xFFA3B1C6);
-  static const Color _lightShadow = Colors.white;
+  // Modern UI Colors
+  static const Color _accentColor = Color(0xFF00FFA3);
+  static const Color _textColor = Colors.white;
+  static const Color _darkBgColor = Color(0xFF1A234E);
+  static const Color _lightBgColor = Color(0xFF121212);
 
   @override
   void initState() {
@@ -48,6 +52,9 @@ class _LandingScreenState extends State<LandingScreen>
     _progressController =
     AnimationController(duration: const Duration(seconds: 2), vsync: this)
       ..repeat(reverse: true);
+    _backgroundController =
+    AnimationController(duration: const Duration(seconds: 15), vsync: this)
+      ..repeat(reverse: true);
   }
 
   void _initializeParallax() {
@@ -56,9 +63,9 @@ class _LandingScreenState extends State<LandingScreen>
             .listen((AccelerometerEvent event) {
           if (mounted) {
             setState(() {
-              // Subtle parallax for this theme
-              _parallaxX = _parallaxX * 0.95 + event.x * 0.05 * -1.5;
-              _parallaxY = _parallaxY * 0.95 + event.y * 0.05 * 1.5;
+              // Parallax sensitivity
+              _parallaxX = _parallaxX * 0.9 + event.x * 0.1 * -2.0;
+              _parallaxY = _parallaxY * 0.9 + event.y * 0.1 * 2.0;
             });
           }
         });
@@ -73,6 +80,7 @@ class _LandingScreenState extends State<LandingScreen>
   void dispose() {
     _entranceController.dispose();
     _progressController.dispose();
+    _backgroundController.dispose();
     _accelerometerSubscription?.cancel();
     super.dispose();
   }
@@ -153,10 +161,8 @@ class _LandingScreenState extends State<LandingScreen>
       }
 
       _updateStatusMessage("Verifying employee access...");
-      final adminDoc = await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId)
-          .get();
+      final adminDoc =
+      await FirebaseFirestore.instance.collection('admins').doc(adminId).get();
 
       if (!adminDoc.exists) {
         _updateStatusMessage("Associated admin not found");
@@ -247,25 +253,47 @@ class _LandingScreenState extends State<LandingScreen>
     }
   }
 
-  // --- UI BUILD METHOD & WIDGETS (REDESIGNED "NEUMORPHIC" THEME) ---
+  // --- UI BUILD METHOD & WIDGETS (REDESIGNED "MODERN" THEME) ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _backgroundColor,
       body: MouseRegion(
         onHover: (event) {
           final size = MediaQuery.of(context).size;
           if (mounted) {
             setState(() {
-              _parallaxX = (event.position.dx - size.width / 2) / 100;
-              _parallaxY = (event.position.dy - size.height / 2) / 100;
+              _parallaxX = (event.position.dx - size.width / 2) / 80;
+              _parallaxY = (event.position.dy - size.height / 2) / 80;
             });
           }
         },
-        child: Center(
-          child: _buildAnimatedContent(),
+        child: Stack(
+          children: [
+            _buildAnimatedBackground(),
+            Center(
+              child: _buildAnimatedContent(),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAnimatedBackground() {
+    return AnimatedBuilder(
+      animation: _backgroundController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: const [_darkBgColor, _lightBgColor],
+              stops: [0.0, 0.7 + _backgroundController.value * 0.3],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -284,17 +312,17 @@ class _LandingScreenState extends State<LandingScreen>
               children: [
                 const Spacer(flex: 2),
                 _buildStaggeredAnimatedItem(
-                  interval: const Interval(0.2, 0.8),
+                  interval: const Interval(0.2, 0.8, curve: Curves.easeOut),
                   child: _buildLottieSection(),
                 ),
                 const SizedBox(height: 40),
                 _buildStaggeredAnimatedItem(
-                  interval: const Interval(0.4, 1.0),
+                  interval: const Interval(0.4, 1.0, curve: Curves.easeOut),
                   child: _buildAppIdentity(),
                 ),
                 const SizedBox(height: 32),
                 _buildStaggeredAnimatedItem(
-                  interval: const Interval(0.5, 1.0),
+                  interval: const Interval(0.5, 1.0, curve: Curves.easeOut),
                   child: _buildLoadingSection(),
                 ),
                 const Spacer(flex: 3),
@@ -322,22 +350,23 @@ class _LandingScreenState extends State<LandingScreen>
   }
 
   Widget _buildLottieSection() {
-    return Container(
-      width: 220,
-      height: 220,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: _backgroundColor,
-        boxShadow: [
-          // This creates the "pressed-in" or concave effect
-          BoxShadow(
-              color: _darkShadow, offset: Offset(8, 8), blurRadius: 15),
-          BoxShadow(
-              color: _lightShadow, offset: Offset(-8, -8), blurRadius: 15),
-        ],
-      ),
-      child: Center(
-        child: Lottie.asset('assets/images/groceries.json', width: 180),
+    // This creates the "glass" effect.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(125),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          width: 250,
+          height: 250,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(125),
+            border: Border.all(color: Colors.white.withOpacity(0.2)),
+          ),
+          child: Center(
+            child: Lottie.asset('assets/images/groceries.json', width: 200),
+          ),
+        ),
       ),
     );
   }
@@ -348,9 +377,16 @@ class _LandingScreenState extends State<LandingScreen>
         Text(
           "DailyBasket",
           style: TextStyle(
-            fontSize: 42,
-            fontWeight: FontWeight.w700,
-            color:Colors.green.shade700,
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+            color: _textColor,
+            shadows: [
+              Shadow(
+                blurRadius: 20.0,
+                color: _accentColor.withOpacity(0.7),
+                offset: Offset.zero,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
@@ -358,7 +394,8 @@ class _LandingScreenState extends State<LandingScreen>
           "Smart Store Management",
           style: TextStyle(
             fontSize: 16,
-            color: _darkShadow.withOpacity(0.7),
+            color: _textColor.withOpacity(0.7),
+            letterSpacing: 1.2,
           ),
         ),
       ],
@@ -368,9 +405,9 @@ class _LandingScreenState extends State<LandingScreen>
   Widget _buildLoadingSection() {
     return Column(
       children: [
-        NeumorphicProgressIndicator(
-          width: 250,
-          height: 12,
+        ModernProgressIndicator(
+          width: 280,
+          height: 8,
           controller: _progressController,
         ),
         const SizedBox(height: 24),
@@ -382,9 +419,10 @@ class _LandingScreenState extends State<LandingScreen>
             _statusMessage,
             key: ValueKey<String>(_statusMessage),
             style: TextStyle(
-              color: _darkShadow.withOpacity(0.8),
+              color: _textColor.withOpacity(0.6),
               fontSize: 14,
             ),
+            textAlign: TextAlign.center,
           ),
         ),
       ],
@@ -392,13 +430,13 @@ class _LandingScreenState extends State<LandingScreen>
   }
 }
 
-// --- CUSTOM NEUMORPHIC PROGRESS INDICATOR WIDGET ---
-class NeumorphicProgressIndicator extends StatelessWidget {
+// --- CUSTOM MODERN PROGRESS INDICATOR WIDGET ---
+class ModernProgressIndicator extends StatelessWidget {
   final double width;
   final double height;
   final AnimationController controller;
 
-  const NeumorphicProgressIndicator({
+  const ModernProgressIndicator({
     super.key,
     required this.width,
     required this.height,
@@ -407,45 +445,40 @@ class NeumorphicProgressIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The track of the progress bar
     return Container(
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: _LandingScreenState._backgroundColor,
+        color: Colors.black.withOpacity(0.25),
         borderRadius: BorderRadius.circular(height),
-        boxShadow: const [
-          BoxShadow(
-              color: _LandingScreenState._darkShadow,
-              offset: Offset(2, 2),
-              blurRadius: 2),
-          BoxShadow(
-              color: _LandingScreenState._lightShadow,
-              offset: Offset(-2, -2),
-              blurRadius: 2),
-        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(height),
         child: AnimatedBuilder(
           animation: controller,
           builder: (context, child) {
+            // The moving fill of the progress bar
             return FractionallySizedBox(
               widthFactor: controller.value,
               alignment: Alignment.centerLeft,
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(height),
-                  color: Colors.green.shade400,
+                  gradient: LinearGradient(
+                    colors: [
+                      _LandingScreenState._accentColor.withOpacity(0.8),
+                      _LandingScreenState._accentColor,
+                    ],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.green.shade700.withOpacity(0.5),
-                        offset: const Offset(2, 2),
-                        blurRadius: 4,
-                        spreadRadius: 1),
-                    BoxShadow(
-                        color: Colors.green.shade200,
-                        offset: const Offset(-2, -2),
-                        blurRadius: 2),
+                      color: _LandingScreenState._accentColor.withOpacity(0.5),
+                      blurRadius: 10,
+                      spreadRadius: 2,
+                    ),
                   ],
                 ),
               ),
