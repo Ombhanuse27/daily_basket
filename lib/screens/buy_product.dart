@@ -6,7 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // Import for date formatting
+import 'package:intl/intl.dart';
 
 class BuyProductPage extends StatefulWidget {
   const BuyProductPage({super.key});
@@ -213,6 +213,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
           .collection('admins')
           .doc(adminId)
           .collection('products')
+          .orderBy('createdAt', descending: true)
           .get();
 
       final List<Map<String, dynamic>> fetchedProducts = productSnapshot.docs.map((doc) {
@@ -227,7 +228,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
           'type': data['category'] ?? '',
           'image': data['imagePath'] ?? '',
           'allowDecimal': data['allowDecimal'] ?? false,
-          'gst': data['gst'] ?? '0', // *** FETCH GST VALUE ***
+          'gst': data['gst'] ?? '0',
         };
       }).toList();
 
@@ -272,8 +273,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
 
   void _showCustomerDetailsDialog() {
     final customerNameController = TextEditingController();
-    String paymentStatus = 'Paid'; // Default value
-    bool applyGst = true; // *** NEW: GST STATE VARIABLE ***
+    String paymentStatus = 'Paid';
+    bool applyGst = true;
 
     showDialog(
       context: context,
@@ -310,7 +311,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                       groupValue: paymentStatus,
                       onChanged: (value) => setDialogState(() => paymentStatus = value!),
                     ),
-                    // *** NEW: APPLY GST CHECKBOX ***
                     CheckboxListTile(
                       title: const Text("Apply GST"),
                       value: applyGst,
@@ -336,7 +336,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     final name = customerNameController.text.trim();
                     if (name.isNotEmpty) {
                       Navigator.of(context).pop();
-                      // *** PASS GST FLAG TO BILL GENERATION ***
                       _generatePdfBill(name, paymentStatus, applyGst);
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -358,14 +357,9 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
-  // **** FUNCTION MODIFIED TO HANDLE GST ****
+  // **** MAIN BILL GENERATION FUNCTION (MODIFIED) ****
   Future<void> _generatePdfBill(String customerName, String paymentStatus, bool applyGst) async {
     if (adminId == null) return;
-
-    final regularFontData = await rootBundle.load("assets/fonts/NotoSans-Regular.ttf");
-    final ttfRegular = pw.Font.ttf(regularFontData);
-    final boldFontData = await rootBundle.load("assets/fonts/NotoSans-Bold.ttf");
-    final ttfBold = pw.Font.ttf(boldFontData);
 
     final selectedItems = allProducts.where((p) => selectedProducts[p['id']] == true).toList();
 
@@ -375,12 +369,12 @@ class _BuyProductPageState extends State<BuyProductPage> {
     }
 
     try {
+      final invoiceId = 'INV-${DateTime.now().millisecondsSinceEpoch}';
       List<Map<String, dynamic>> billItemsForDb = [];
       double subTotal = 0;
       double totalCgst = 0;
       double totalSgst = 0;
 
-      // Use a batch to perform multiple writes atomically
       final batch = FirebaseFirestore.instance.batch();
 
       for (var item in selectedItems) {
@@ -391,32 +385,14 @@ class _BuyProductPageState extends State<BuyProductPage> {
         double itemSubtotal = rate * qty;
         subTotal += itemSubtotal;
 
-        // 1. Update product quantity
         final productRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('products').doc(productId);
         batch.update(productRef, {'quantity': (currentQty - qty).toString()});
 
-        // 2. Record individual sale (as per original logic)
-        final saleRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').doc();
-        Map<String, dynamic> saleData = {
-          'productId': productId, 'productName': item['name'],
-          'rate': rate,
-          'originalRate': double.tryParse(item['originalRate'].toString()) ?? 0,
-          'quantity': qty, 'unit': item['unit'], 'category': item['type'],
-          'subtotal': itemSubtotal,
-          'imagePath': item['image'], 'timestamp': FieldValue.serverTimestamp(),
-          'saleDate': DateTime.now().toIso8601String(),
-          'soldBy': currentUserEmail, 'soldByType': isEmployee ? 'employee' : 'admin',
-          'customerName': customerName, 'paymentStatus': paymentStatus,
-        };
-        batch.set(saleRef, saleData);
-
-        // Prepare item list for the consolidated bill
         billItemsForDb.add({
           'productName': item['name'], 'quantity': qty, 'unit': item['unit'],
           'rate': rate, 'subtotal': itemSubtotal, 'gst': item['gst'],
         });
 
-        // Calculate GST if applicable
         if (applyGst) {
           double gstRate = double.tryParse(item['gst'].toString()) ?? 0.0;
           if (gstRate > 0) {
@@ -429,9 +405,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
 
       double grandTotal = subTotal + totalCgst + totalSgst;
 
-      // 3. Create and save the consolidated bill document
       Map<String, dynamic> billData = {
-        'customerName': customerName, 'paymentStatus': paymentStatus,
+        'invoiceId': invoiceId, 'customerName': customerName, 'paymentStatus': paymentStatus,
         'subTotal': subTotal, 'totalCgst': totalCgst, 'totalSgst': totalSgst,
         'grandTotal': grandTotal, 'gstApplied': applyGst,
         'billDate': Timestamp.now(), 'soldBy': currentUserEmail, 'items': billItemsForDb,
@@ -439,22 +414,26 @@ class _BuyProductPageState extends State<BuyProductPage> {
       final billRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('bills').doc();
       batch.set(billRef, billData);
 
-      // Commit all database operations
       await batch.commit();
 
       // --- PDF Generation ---
       final pdf = pw.Document();
+      final font = await PdfGoogleFonts.poppinsRegular();
+      final boldFont = await PdfGoogleFonts.poppinsBold();
+
       pdf.addPage(
         pw.MultiPage(
-          theme: pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold),
-          header: (context) => _buildHeader(),
-          footer: (context) => _buildFooter(),
+          theme: pw.ThemeData.withFont(base: font, bold: boldFont),
           build: (context) => [
-            _buildBillInfo(customerName),
-            pw.SizedBox(height: 20),
-            _buildInvoiceTable(selectedItems),
+            _buildModernHeader(invoiceId),
+            pw.SizedBox(height: 1 * PdfPageFormat.cm),
+            _buildCustomerAddress(customerName),
+            pw.SizedBox(height: 1 * PdfPageFormat.cm),
+            _buildModernInvoiceTable(selectedItems),
             pw.Divider(),
-            _buildTotal(paymentStatus, applyGst, subTotal, totalCgst, totalSgst, grandTotal), // Pass GST data
+            _buildModernTotal(paymentStatus, applyGst, subTotal, totalCgst, totalSgst, grandTotal),
+            pw.SizedBox(height: 1 * PdfPageFormat.cm),
+            _buildModernFooter(),
           ],
         ),
       );
@@ -472,146 +451,169 @@ class _BuyProductPageState extends State<BuyProductPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Purchase completed successfully!'), backgroundColor: Colors.green));
 
     } catch (e) {
+      print("Error generating bill: $e");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error processing purchase: $e'), backgroundColor: Colors.red));
     }
   }
 
-  pw.Widget _buildHeader() {
+  // ---- NEW: MODERN PDF UI BUILDER WIDGETS ----
+
+  pw.Widget _buildModernHeader(String invoiceId) {
     return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Row(
+        pw.Flex(
+          direction: pw.Axis.horizontal,
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(shopName ?? "Your Shop Name", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20)),
-                pw.Text(shopAddress ?? "Your Shop Address, City, State"),
+                pw.Text(shopName ?? "Your Shop", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 24)),
+                pw.Text(shopAddress ?? "Your Address"),
               ],
             ),
-            pw.Text("INVOICE", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 24, color: PdfColors.green)),
+            pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text("INVOICE", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 32, color: PdfColors.grey800)),
+                  pw.Text(invoiceId, style: const pw.TextStyle(color: PdfColors.grey600)),
+                ]
+            )
           ],
         ),
-        pw.SizedBox(height: 10),
-        pw.Divider(),
-        pw.SizedBox(height: 10),
+        pw.SizedBox(height: 1 * PdfPageFormat.cm),
+        pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Date: ${DateFormat('dd MMMM, yyyy').format(DateTime.now())}"),
+              pw.Text("Time: ${DateFormat('hh:mm a').format(DateTime.now())}"),
+            ]
+        ),
+        pw.Divider(color: PdfColors.grey400),
       ],
     );
   }
 
-  pw.Widget _buildBillInfo(String customerName) {
-    final now = DateTime.now();
-    final date = DateFormat('dd/MM/yyyy').format(now);
-    final time = DateFormat('hh:mm a').format(now);
-
+  pw.Widget _buildCustomerAddress(String customerName) {
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
         pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text("BILL TO:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text('Billed To:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
             pw.Text(customerName),
           ],
         ),
         pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.end,
-          children: [
-            pw.Text("Date: $date", style: const pw.TextStyle(fontSize: 10)),
-            pw.Text("Time: $time", style: const pw.TextStyle(fontSize: 10)),
-            pw.SizedBox(height: 4),
-            pw.Text("Sold by: $currentUserEmail", style: const pw.TextStyle(fontSize: 10)),
-          ],
-        ),
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text('Sold By:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text(currentUserEmail ?? 'N/A'),
+            ]
+        )
       ],
     );
   }
 
-  pw.Widget _buildInvoiceTable(List<Map<String, dynamic>> items) {
-    const tableHeaders = ['Product', 'Qty', 'Unit', 'Rate', 'Subtotal'];
+  /// Formats quantity to show .0 only if it's a decimal
+  String formatQuantity(double qty) {
+    if (qty == qty.truncateToDouble()) {
+      return qty.toInt().toString();
+    } else {
+      return qty.toString();
+    }
+  }
 
-    return pw.Table.fromTextArray(
+  pw.Widget _buildModernInvoiceTable(List<Map<String, dynamic>> items) {
+    const tableHeaders = ['#', 'Product', 'Quantity', 'Rate', 'Total'];
+
+    return pw.TableHelper.fromTextArray(
       headers: tableHeaders,
-      data: items.map((item) {
-        double qty = productQuantities[item['id']] ?? 1.0;
-        double rate = double.tryParse(item['rate'].toString()) ?? 0.0;
+      data: List<List<String>>.generate(items.length, (index) {
+        final item = items[index];
+        final qty = productQuantities[item['id']] ?? 1.0;
+        final rate = double.tryParse(item['rate'].toString()) ?? 0.0;
+        final total = qty * rate;
         return [
+          (index + 1).toString(),
           item['name'],
-          qty.toString(),
-          item['unit'] ?? '',
-          "₹${rate.toStringAsFixed(2)}",
-          "₹${(rate * qty).toStringAsFixed(2)}"
+          formatQuantity(qty),
+          '₹${rate.toStringAsFixed(2)}',
+          '₹${total.toStringAsFixed(2)}',
         ];
-      }).toList(),
+      }),
       headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-      headerDecoration: const pw.BoxDecoration(color: PdfColors.green),
+      headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
       cellHeight: 30,
       cellAlignments: {
-        0: pw.Alignment.centerLeft, 1: pw.Alignment.center,
-        2: pw.Alignment.center, 3: pw.Alignment.centerRight,
+        0: pw.Alignment.center,
+        1: pw.Alignment.centerLeft,
+        2: pw.Alignment.center,
+        3: pw.Alignment.centerRight,
         4: pw.Alignment.centerRight,
       },
-      border: pw.TableBorder.all(color: PdfColors.grey600),
+      border: pw.TableBorder.all(color: PdfColors.grey, width: 0.5),
     );
   }
 
-  // *** NEW PDF TOTALS SECTION WITH GST BREAKDOWN ***
-  pw.Widget _buildTotal(String paymentStatus, bool applyGst, double subTotal, double totalCgst, double totalSgst, double grandTotal) {
+  pw.Widget _buildModernTotal(String paymentStatus, bool applyGst, double subTotal, double totalCgst, double totalSgst, double grandTotal) {
     return pw.Container(
       alignment: pw.Alignment.centerRight,
       child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.end,
         children: [
           pw.Spacer(),
           pw.Expanded(
+            flex: 2,
             child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text("Subtotal:"),
-                    pw.Text("₹${subTotal.toStringAsFixed(2)}"),
+                    pw.Text('Subtotal:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.Text('₹${subTotal.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                   ],
                 ),
                 if (applyGst && (totalCgst > 0 || totalSgst > 0)) ...[
-                  pw.SizedBox(height: 5),
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text("CGST:"),
-                      pw.Text("₹${totalCgst.toStringAsFixed(2)}"),
+                      pw.Text('CGST:'),
+                      pw.Text('₹${totalCgst.toStringAsFixed(2)}'),
                     ],
                   ),
-                  pw.SizedBox(height: 5),
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text("SGST:"),
-                      pw.Text("₹${totalSgst.toStringAsFixed(2)}"),
+                      pw.Text('SGST:'),
+                      pw.Text('₹${totalSgst.toStringAsFixed(2)}'),
                     ],
                   ),
-                  pw.Divider(height: 10),
                 ],
-                pw.SizedBox(height: 5),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("GRAND TOTAL:", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("₹${grandTotal.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
-                  ],
+                pw.Divider(),
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('Grand Total:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+                      pw.Text('₹${grandTotal.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
+                    ],
+                  ),
                 ),
-                pw.SizedBox(height: 5),
+                pw.SizedBox(height: 0.5 * PdfPageFormat.cm),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('Payment Status:', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Payment Status:'),
                     pw.Text(
-                      paymentStatus.toUpperCase(),
+                      paymentStatus,
                       style: pw.TextStyle(
                         fontWeight: pw.FontWeight.bold,
-                        color: paymentStatus == 'Paid' ? PdfColors.green : PdfColors.red,
+                        color: paymentStatus == 'Paid' ? PdfColors.green : PdfColors.orange,
                       ),
                     ),
                   ],
@@ -624,15 +626,21 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
-  pw.Widget _buildFooter() {
+  pw.Widget _buildModernFooter() {
     return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
         pw.Divider(),
-        pw.SizedBox(height: 10),
-        pw.Center(child: pw.Text("Thank you for your purchase!", style: pw.TextStyle(fontStyle: pw.FontStyle.italic))),
+        pw.SizedBox(height: 2 * PdfPageFormat.mm),
+        pw.Text('Thank you for your business!', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 1 * PdfPageFormat.mm),
+        pw.Text("Generated on ${DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now())}", style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey)),
       ],
     );
   }
+
+
+  // ---- END OF MODERN PDF WIDGETS ----
 
   @override
   Widget build(BuildContext context) {
@@ -816,7 +824,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                 final newQty = currentQty - 1;
                                                 setState(() {
                                                   productQuantities[id] = newQty;
-                                                  _quantityControllers[id]?.text = newQty.toString();
+                                                  _quantityControllers[id]?.text = formatQuantity(newQty);
                                                 });
                                               }
                                             },
@@ -835,7 +843,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                                 if (parsed != null && parsed > 0 && parsed <= available) {
                                                   setState(() => productQuantities[id] = parsed);
                                                 } else if (parsed != null && parsed > available) {
-                                                  _quantityControllers[id]?.text = available.toString();
+                                                  _quantityControllers[id]?.text = formatQuantity(available);
                                                   setState(() => productQuantities[id] = available);
                                                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Only $available items available')));
                                                 }
@@ -852,7 +860,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                               if (newQty <= available) {
                                                 setState(() {
                                                   productQuantities[id] = newQty;
-                                                  _quantityControllers[id]?.text = newQty.toString();
+                                                  _quantityControllers[id]?.text = formatQuantity(newQty);
                                                 });
                                               } else {
                                                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Only $available items available')));
@@ -891,7 +899,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Display Subtotal here, as GST will be added later
                 Text("Subtotal: ₹${_calculateTotalAmount().toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 Row(
@@ -968,7 +975,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
                           final quantity = productQuantities[id] ?? 1.0;
                           final unit = item['unit'] ?? '';
                           final rate = double.tryParse(item['rate'].toString()) ?? 0;
-                          final bool allowDecimal = item['allowDecimal'] as bool? ?? false;
 
                           return Card(
                             elevation: 1,
@@ -1012,23 +1018,25 @@ class _BuyProductPageState extends State<BuyProductPage> {
                                               onPressed: () {
                                                 if (quantity > 1) {
                                                   setState(() {
-                                                    productQuantities[id] = quantity - 1;
-                                                    _quantityControllers[id]?.text = productQuantities[id]!.toStringAsFixed(allowDecimal ? 2 : 0);
+                                                    final newQty = quantity - 1;
+                                                    productQuantities[id] = newQty;
+                                                    _quantityControllers[id]?.text = formatQuantity(newQty);
                                                   });
                                                   setDialogState(() {});
                                                 }
                                               },
                                             ),
-                                            Text(quantity.toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                                            Text(formatQuantity(quantity), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                                             IconButton(
                                               padding: const EdgeInsets.symmetric(horizontal: 8),
                                               constraints: const BoxConstraints(),
                                               icon: const Icon(Icons.add, size: 16),
                                               onPressed: () {
                                                 if (quantity + 1 <= available) {
+                                                  final newQty = quantity + 1;
                                                   setState(() {
-                                                    productQuantities[id] = quantity + 1;
-                                                    _quantityControllers[id]?.text = productQuantities[id]!.toStringAsFixed(allowDecimal ? 2 : 0);
+                                                    productQuantities[id] = newQty;
+                                                    _quantityControllers[id]?.text = formatQuantity(newQty);
                                                   });
                                                   setDialogState(() {});
                                                 } else {
