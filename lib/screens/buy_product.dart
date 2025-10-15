@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
-import 'db_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart'; // Import for date formatting
@@ -16,7 +15,6 @@ class BuyProductPage extends StatefulWidget {
   State<BuyProductPage> createState() => _BuyProductPageState();
 }
 
-// (buildProductImage function remains the same, no changes needed here)
 Widget buildProductImage(String? imagePath, {double size = 70}) {
   if (imagePath != null && imagePath.startsWith("assets/")) {
     return Image.asset(imagePath, width: size, height: size, fit: BoxFit.cover);
@@ -47,7 +45,6 @@ Widget buildProductImage(String? imagePath, {double size = 70}) {
     return Image.asset('assets/images/img_4.png', width: size, height: size, fit: BoxFit.cover);
   }
 }
-
 
 class _BuyProductPageState extends State<BuyProductPage> {
   List<Map<String, dynamic>> products = [];
@@ -230,6 +227,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
           'type': data['category'] ?? '',
           'image': data['imagePath'] ?? '',
           'allowDecimal': data['allowDecimal'] ?? false,
+          'gst': data['gst'] ?? '0', // *** FETCH GST VALUE ***
         };
       }).toList();
 
@@ -275,6 +273,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
   void _showCustomerDetailsDialog() {
     final customerNameController = TextEditingController();
     String paymentStatus = 'Paid'; // Default value
+    bool applyGst = true; // *** NEW: GST STATE VARIABLE ***
 
     showDialog(
       context: context,
@@ -311,6 +310,19 @@ class _BuyProductPageState extends State<BuyProductPage> {
                       groupValue: paymentStatus,
                       onChanged: (value) => setDialogState(() => paymentStatus = value!),
                     ),
+                    // *** NEW: APPLY GST CHECKBOX ***
+                    CheckboxListTile(
+                      title: const Text("Apply GST"),
+                      value: applyGst,
+                      onChanged: (bool? value) {
+                        setDialogState(() {
+                          applyGst = value ?? false;
+                        });
+                      },
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      activeColor: Colors.green,
+                    ),
                   ],
                 ),
               ),
@@ -324,7 +336,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
                     final name = customerNameController.text.trim();
                     if (name.isNotEmpty) {
                       Navigator.of(context).pop();
-                      _generatePdfBill(name, paymentStatus);
+                      // *** PASS GST FLAG TO BILL GENERATION ***
+                      _generatePdfBill(name, paymentStatus, applyGst);
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
@@ -345,8 +358,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
-  // **** FUNCTION MODIFIED TO SAVE BILL ****
-  Future<void> _generatePdfBill(String customerName, String paymentStatus) async {
+  // **** FUNCTION MODIFIED TO HANDLE GST ****
+  Future<void> _generatePdfBill(String customerName, String paymentStatus, bool applyGst) async {
     if (adminId == null) return;
 
     final regularFontData = await rootBundle.load("assets/fonts/NotoSans-Regular.ttf");
@@ -354,7 +367,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
     final boldFontData = await rootBundle.load("assets/fonts/NotoSans-Bold.ttf");
     final ttfBold = pw.Font.ttf(boldFontData);
 
-    final pdf = pw.Document();
     final selectedItems = allProducts.where((p) => selectedProducts[p['id']] == true).toList();
 
     if (selectedItems.isEmpty) {
@@ -363,64 +375,75 @@ class _BuyProductPageState extends State<BuyProductPage> {
     }
 
     try {
-      List<Map<String, dynamic>> billItems = [];
+      List<Map<String, dynamic>> billItemsForDb = [];
+      double subTotal = 0;
+      double totalCgst = 0;
+      double totalSgst = 0;
+
+      // Use a batch to perform multiple writes atomically
+      final batch = FirebaseFirestore.instance.batch();
 
       for (var item in selectedItems) {
         String productId = item['id'];
         double qty = productQuantities[productId] ?? 1.0;
         double currentQty = double.tryParse(item['quantity'].toString()) ?? 0;
         double rate = double.tryParse(item['rate'].toString()) ?? 0;
-        double newQty = currentQty - qty;
+        double itemSubtotal = rate * qty;
+        subTotal += itemSubtotal;
 
-        // Update product quantity
-        await FirebaseFirestore.instance
-            .collection('admins')
-            .doc(adminId)
-            .collection('products')
-            .doc(productId)
-            .update({'quantity': newQty.toString()});
+        // 1. Update product quantity
+        final productRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('products').doc(productId);
+        batch.update(productRef, {'quantity': (currentQty - qty).toString()});
 
-        // Record individual sale
+        // 2. Record individual sale (as per original logic)
+        final saleRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').doc();
         Map<String, dynamic> saleData = {
           'productId': productId, 'productName': item['name'],
           'rate': rate,
           'originalRate': double.tryParse(item['originalRate'].toString()) ?? 0,
           'quantity': qty, 'unit': item['unit'], 'category': item['type'],
-          'subtotal': rate * qty,
+          'subtotal': itemSubtotal,
           'imagePath': item['image'], 'timestamp': FieldValue.serverTimestamp(),
           'saleDate': DateTime.now().toIso8601String(),
           'soldBy': currentUserEmail, 'soldByType': isEmployee ? 'employee' : 'admin',
           'customerName': customerName, 'paymentStatus': paymentStatus,
         };
-        await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').add(saleData);
+        batch.set(saleRef, saleData);
 
-        // Add item to the list for the consolidated bill
-        billItems.add({
-          'productName': item['name'],
-          'quantity': qty,
-          'unit': item['unit'],
-          'rate': rate,
-          'subtotal': rate * qty,
+        // Prepare item list for the consolidated bill
+        billItemsForDb.add({
+          'productName': item['name'], 'quantity': qty, 'unit': item['unit'],
+          'rate': rate, 'subtotal': itemSubtotal, 'gst': item['gst'],
         });
+
+        // Calculate GST if applicable
+        if (applyGst) {
+          double gstRate = double.tryParse(item['gst'].toString()) ?? 0.0;
+          if (gstRate > 0) {
+            double gstAmount = itemSubtotal * (gstRate / 100);
+            totalCgst += gstAmount / 2;
+            totalSgst += gstAmount / 2;
+          }
+        }
       }
 
-      // *** NEW: CREATE AND SAVE THE CONSOLIDATED BILL DOCUMENT ***
-      final totalAmount = _calculateTotalAmount();
-      Map<String, dynamic> billData = {
-        'customerName': customerName,
-        'paymentStatus': paymentStatus,
-        'totalAmount': totalAmount,
-        'billDate': Timestamp.now(),
-        'soldBy': currentUserEmail,
-        'items': billItems, // Store the list of items
-      };
-      await FirebaseFirestore.instance
-          .collection('admins')
-          .doc(adminId)
-          .collection('bills')
-          .add(billData);
-      // **********************************************************
+      double grandTotal = subTotal + totalCgst + totalSgst;
 
+      // 3. Create and save the consolidated bill document
+      Map<String, dynamic> billData = {
+        'customerName': customerName, 'paymentStatus': paymentStatus,
+        'subTotal': subTotal, 'totalCgst': totalCgst, 'totalSgst': totalSgst,
+        'grandTotal': grandTotal, 'gstApplied': applyGst,
+        'billDate': Timestamp.now(), 'soldBy': currentUserEmail, 'items': billItemsForDb,
+      };
+      final billRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('bills').doc();
+      batch.set(billRef, billData);
+
+      // Commit all database operations
+      await batch.commit();
+
+      // --- PDF Generation ---
+      final pdf = pw.Document();
       pdf.addPage(
         pw.MultiPage(
           theme: pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold),
@@ -431,7 +454,7 @@ class _BuyProductPageState extends State<BuyProductPage> {
             pw.SizedBox(height: 20),
             _buildInvoiceTable(selectedItems),
             pw.Divider(),
-            _buildTotal(paymentStatus),
+            _buildTotal(paymentStatus, applyGst, subTotal, totalCgst, totalSgst, grandTotal), // Pass GST data
           ],
         ),
       );
@@ -452,7 +475,6 @@ class _BuyProductPageState extends State<BuyProductPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error processing purchase: $e'), backgroundColor: Colors.red));
     }
   }
-  // **********************************
 
   pw.Widget _buildHeader() {
     return pw.Column(
@@ -534,7 +556,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
     );
   }
 
-  pw.Widget _buildTotal(String paymentStatus) {
+  // *** NEW PDF TOTALS SECTION WITH GST BREAKDOWN ***
+  pw.Widget _buildTotal(String paymentStatus, bool applyGst, double subTotal, double totalCgst, double totalSgst, double grandTotal) {
     return pw.Container(
       alignment: pw.Alignment.centerRight,
       child: pw.Row(
@@ -548,8 +571,35 @@ class _BuyProductPageState extends State<BuyProductPage> {
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text("TOTAL AMOUNT:", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                    pw.Text("₹${_calculateTotalAmount().toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
+                    pw.Text("Subtotal:"),
+                    pw.Text("₹${subTotal.toStringAsFixed(2)}"),
+                  ],
+                ),
+                if (applyGst && (totalCgst > 0 || totalSgst > 0)) ...[
+                  pw.SizedBox(height: 5),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text("CGST:"),
+                      pw.Text("₹${totalCgst.toStringAsFixed(2)}"),
+                    ],
+                  ),
+                  pw.SizedBox(height: 5),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text("SGST:"),
+                      pw.Text("₹${totalSgst.toStringAsFixed(2)}"),
+                    ],
+                  ),
+                  pw.Divider(height: 10),
+                ],
+                pw.SizedBox(height: 5),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text("GRAND TOTAL:", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("₹${grandTotal.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
                   ],
                 ),
                 pw.SizedBox(height: 5),
@@ -841,7 +891,8 @@ class _BuyProductPageState extends State<BuyProductPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text("Total: ₹${_calculateTotalAmount().toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
+                // Display Subtotal here, as GST will be added later
+                Text("Subtotal: ₹${_calculateTotalAmount().toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green), textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 Row(
                   children: [

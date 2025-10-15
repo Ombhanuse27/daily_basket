@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
-import 'db_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
@@ -39,6 +38,7 @@ class _AddProductPageState extends State<AddProductPage> {
   final categoryController = TextEditingController();
   final unitController = TextEditingController();
   final originalRateController = TextEditingController();
+  final gstController = TextEditingController(); // *** NEW: GST CONTROLLER ***
 
   // New state for the checkbox
   bool _allowDecimal = false;
@@ -445,6 +445,12 @@ class _AddProductPageState extends State<AddProductPage> {
             const SizedBox(height: 16),
             _buildTextField(originalRateController, 'Original Rate', Icons.currency_rupee),
             const SizedBox(height: 16),
+
+            // *** NEW WIDGET ADDED HERE ***
+            _buildTextField(gstController, 'GST Percentage (%)', Icons.percent),
+            const SizedBox(height: 16),
+            // ***************************
+
             Row(
               children: [
                 Expanded(child: _buildTextField(quantityController, 'Quantity', Icons.production_quantity_limits)),
@@ -523,7 +529,6 @@ class _AddProductPageState extends State<AddProductPage> {
 
             const SizedBox(height: 10),
 
-            // *** NEW WIDGET ADDED HERE ***
             CheckboxListTile(
               title: const Text("Allow selling in decimal quantities"),
               value: _allowDecimal,
@@ -536,7 +541,6 @@ class _AddProductPageState extends State<AddProductPage> {
               contentPadding: EdgeInsets.zero,
               activeColor: Colors.deepPurple,
             ),
-            // ***************************
 
             const SizedBox(height: 20),
             SizedBox(
@@ -562,8 +566,8 @@ class _AddProductPageState extends State<AddProductPage> {
   Widget _buildTextField(TextEditingController controller, String hint, IconData icon) {
     return TextField(
       controller: controller,
-      keyboardType: hint.toLowerCase().contains('rate') || hint.toLowerCase().contains('quantity')
-          ? const TextInputType.numberWithOptions(decimal: true) // Allow decimal for all number fields
+      keyboardType: hint.toLowerCase().contains('rate') || hint.toLowerCase().contains('quantity') || hint.toLowerCase().contains('gst')
+          ? const TextInputType.numberWithOptions(decimal: true) // Allow decimal for number fields
           : null,
       decoration: InputDecoration(
         labelText: hint,
@@ -640,12 +644,13 @@ class _AddProductPageState extends State<AddProductPage> {
         'rate': rateController.text.trim(),
         'originalRate': originalRateController.text.trim(),
         'category': categoryToUse,
-        'imagePath': cloudinaryImageUrl ?? selectedImage ?? dummyImg, // Use Cloudinary URL if available
+        'imagePath': cloudinaryImageUrl ?? selectedImage ?? dummyImg,
         'quantity': quantityController.text.trim(),
         'unit': unitToUse,
-        'allowDecimal': _allowDecimal, // Save the checkbox value
+        'allowDecimal': _allowDecimal,
+        'gst': gstController.text.trim().isEmpty ? '0' : gstController.text.trim(), // *** SAVE GST ***
         'createdAt': Timestamp.now(),
-        'addedBy': isEmployee ? 'employee' : 'admin', // Track who added the product
+        'addedBy': isEmployee ? 'employee' : 'admin',
         'addedByEmail': currentUserEmail,
       };
       // ***************************
@@ -666,8 +671,6 @@ class _AddProductPageState extends State<AddProductPage> {
             .doc(adminId!)
             .collection('categories')
             .add({'name': categoryToUse});
-
-        // Reload categories
         await _loadCategories();
       }
 
@@ -678,8 +681,6 @@ class _AddProductPageState extends State<AddProductPage> {
             .doc(adminId!)
             .collection('units')
             .add({'name': unitToUse});
-
-        // Reload units
         await _loadUnits();
       }
 
@@ -695,7 +696,8 @@ class _AddProductPageState extends State<AddProductPage> {
         cloudinaryImageUrl = null;
         categoryController.clear();
         unitController.clear();
-        _allowDecimal = false; // Reset the checkbox
+        gstController.clear(); // *** CLEAR GST FIELD ***
+        _allowDecimal = false;
       });
       // *********************
 
@@ -733,20 +735,13 @@ class _AddProductPageState extends State<AddProductPage> {
               final newCat = newCategoryController.text.trim();
               if (newCat.isNotEmpty && !types.contains(newCat) && adminId != null) {
                 try {
-                  // Add to Firestore instead of local DB
                   await FirebaseFirestore.instance
                       .collection('admins')
                       .doc(adminId!)
                       .collection('categories')
                       .add({'name': newCat});
-
-                  // Reload categories
                   await _loadCategories();
-
-                  setState(() {
-                    selectedType = newCat;
-                  });
-
+                  setState(() => selectedType = newCat);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Category "$newCat" added successfully!')),
                   );
@@ -786,20 +781,13 @@ class _AddProductPageState extends State<AddProductPage> {
               final newUnit = newUnitController.text.trim();
               if (newUnit.isNotEmpty && !units.contains(newUnit) && adminId != null) {
                 try {
-                  // Add to Firestore instead of local DB
                   await FirebaseFirestore.instance
                       .collection('admins')
                       .doc(adminId!)
                       .collection('units')
                       .add({'name': newUnit});
-
-                  // Reload units
                   await _loadUnits();
-
-                  setState(() {
-                    selectedUnit = newUnit;
-                  });
-
+                  setState(() => selectedUnit = newUnit);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Unit "$newUnit" added successfully!')),
                   );
