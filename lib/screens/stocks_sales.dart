@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 
-// *** ADD THIS IMPORT TO NAVIGATE TO THE BILLS PAGE ***
+// Make sure you have this file in your project to navigate to it
 import 'view_bills_page.dart';
 
 // Enum to manage which view is currently selected.
@@ -42,12 +42,13 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
 
   Future<void> _loadAllData() async {
     setState(() => isLoading = true);
+    // Load sales data first, as stats depend on it.
     await _loadSalesData();
     await _loadStats();
     if (mounted) setState(() => isLoading = false);
   }
 
-  // --- CALCULATED GETTERS (Unchanged) ---
+  // --- CALCULATED GETTERS (Using correct flattened data) ---
   double get totalProfit {
     return allSalesData.fold(0.0, (sum, sale) {
       final profitPerItem = (sale['rate'] ?? 0.0) - (sale['originalRate'] ?? 0.0);
@@ -55,7 +56,9 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
       return sum + totalProfitForSale;
     });
   }
+
   double get totalRevenue => allSalesData.fold(0.0, (sum, sale) => sum + (sale['subtotal'] ?? 0.0));
+
   double get monthlyRevenue {
     final now = DateTime.now();
     return allSalesData.where((sale) {
@@ -63,25 +66,40 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
       return saleDate != null && saleDate.month == now.month && saleDate.year == now.year;
     }).fold(0.0, (sum, sale) => sum + (sale['subtotal'] ?? 0.0));
   }
+
   double get filteredSalesAmount => filteredSalesData.fold(0.0, (sum, sale) => sum + (sale['subtotal'] ?? 0.0));
+
   List<Map<String, dynamic>> get filteredStats {
     if (searchQuery.isEmpty) return productStats;
     return productStats.where((item) => (item['name'] as String).toLowerCase().contains(searchQuery.toLowerCase())).toList();
   }
 
-  // --- DATA LOADING & FILTERING LOGIC (Unchanged) ---
+  // Helper function to format quantity display (e.g., 5.0 becomes 5, 5.5 stays 5.5)
+  String formatQuantity(double qty) {
+    if (qty == qty.truncateToDouble()) {
+      return qty.toInt().toString();
+    } else {
+      return qty.toString();
+    }
+  }
+
+  // --- DATA LOADING & FILTERING LOGIC (Corrected) ---
   Future<void> _loadStats() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final adminId = prefs.getString('admin_id');
       if (adminId == null) return;
       final productsSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('products').get();
+
+      // 'allSalesData' is now correctly populated before this function is called.
       final salesDocs = allSalesData;
       List<Map<String, dynamic>> stats = [];
+
       for (var productDoc in productsSnapshot.docs) {
         final productData = productDoc.data();
         final productId = productDoc.id;
         final productSales = salesDocs.where((sale) => sale['productId'] == productId);
+
         double totalSold = 0, totalRevenue = 0, totalProfit = 0;
         for (var sale in productSales) {
           final quantity = (sale['quantity'] ?? 0).toDouble();
@@ -91,13 +109,18 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
           totalRevenue += (rate * quantity);
           totalProfit += (rate - originalRate) * quantity;
         }
+
         stats.add({
-          'id': productId, 'name': productData['name'] ?? 'Unknown',
-          'type': productData['category'] ?? 'Unknown', 'unit': productData['unit'] ?? '',
+          'id': productId,
+          'name': productData['name'] ?? 'Unknown',
+          'type': productData['category'] ?? 'Unknown',
+          'unit': productData['unit'] ?? '',
           'rate': (productData['rate'] ?? '0').toString(),
           'originalRate': (productData['originalRate'] ?? '0').toString(),
           'stockLeft': double.tryParse(productData['quantity']?.toString() ?? '0') ?? 0,
-          'totalSold': totalSold, 'profit': totalProfit, 'revenue': totalRevenue,
+          'totalSold': totalSold,
+          'profit': totalProfit,
+          'revenue': totalRevenue,
           'image': productData['imagePath'] ?? '',
         });
       }
@@ -112,31 +135,54 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
       final prefs = await SharedPreferences.getInstance();
       final adminId = prefs.getString('admin_id');
       if (adminId == null) return;
-      final salesSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').orderBy('timestamp', descending: true).get();
-      final sales = salesSnapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'id': doc.id,
-          'productId': data['productId'] ?? '',
-          'productName': data['productName'] ?? 'Unknown',
-          'rate': (data['rate'] ?? 0).toDouble(),
-          'originalRate': (data['originalRate'] ?? 0).toDouble(),
-          'quantity': (data['quantity'] ?? 0).toDouble(),
-          'unit': data['unit'] ?? '',
-          'subtotal': (data['subtotal'] ?? 0).toDouble(),
-          'imagePath': data['imagePath'] ?? '',
-          'saleDate': data['saleDate'] ?? DateTime.now().toIso8601String(),
-          'customerName': data['customerName'] ?? 'N/A',
-        };
-      }).toList();
+
+      // 1. Fetch all products to create a lookup map by product NAME.
+      // This is crucial for getting 'originalRate', 'imagePath', and 'productId'.
+      final productsSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('products').get();
+      final Map<String, Map<String, dynamic>> productsMapByName = {
+        for (var doc in productsSnapshot.docs)
+          doc.data()['name'] as String: {'id': doc.id, ...doc.data()}
+      };
+
+      // 2. Fetch all sales documents (bills).
+      final salesSnapshot = await FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').orderBy('billDate', descending: true).get();
+
+      // 3. Flatten the bill data into a list of individual item sales.
+      final List<Map<String, dynamic>> flattenedSales = [];
+      for (var doc in salesSnapshot.docs) {
+        final saleData = doc.data();
+        final billDate = (saleData['billDate'] as Timestamp?)?.toDate() ?? DateTime.now();
+        final customerName = saleData['customerName'] ?? 'N/A';
+        final List<dynamic> items = saleData['items'] ?? [];
+
+        for (var item in items) {
+          final productName = item['productName'] ?? 'Unknown';
+          final productDetails = productsMapByName[productName]; // Lookup product details from map
+
+          flattenedSales.add({
+            'productId': productDetails?['id'] ?? '', // Get product ID from map
+            'productName': productName,
+            'rate': (item['rate'] ?? 0).toDouble(),
+            'originalRate': double.tryParse(productDetails?['originalRate']?.toString() ?? '0.0') ?? 0.0, // Get original rate from map
+            'quantity': (item['quantity'] ?? 0).toDouble(),
+            'unit': item['unit'] ?? '',
+            'subtotal': (item['subtotal'] ?? 0).toDouble(),
+            'imagePath': productDetails?['imagePath'] ?? '', // Get image path from map
+            'saleDate': billDate.toIso8601String(),
+            'customerName': customerName,
+          });
+        }
+      }
+
       if (mounted) {
         setState(() {
-          allSalesData = sales;
-          _applySalesFilter();
+          allSalesData = flattenedSales;
+          _applySalesFilter(); // This will update filteredSalesData as well
         });
       }
     } catch (e) {
       print('Error loading sales data: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading sales data: $e')));
     }
   }
 
@@ -221,68 +267,195 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
     return 'Filter: ${formatter.format(_startDate!)} - ${formatter.format(_endDate!)}';
   }
 
+  // ######################################################################
+  // ########## PDF EXPORT FUNCTION - UPDATED FOR SALES REPORT ############
+  // ######################################################################
   Future<void> _exportToPDF() async {
-    final regularFontData = await rootBundle.load("assets/fonts/NotoSans-Regular.ttf");
-    final ttfRegular = pw.Font.ttf(regularFontData);
-    final boldFontData = await rootBundle.load("assets/fonts/NotoSans-Bold.ttf");
-    final ttfBold = pw.Font.ttf(boldFontData);
-
-    final theme = pw.ThemeData.withFont(
-      base: ttfRegular,
-      bold: ttfBold,
-    );
-
     final pdf = pw.Document();
+    final font = await PdfGoogleFonts.poppinsRegular();
+    final boldFont = await PdfGoogleFonts.poppinsBold();
 
+    final theme = pw.ThemeData.withFont(base: font, bold: boldFont);
+
+    // --- First Page: Product Statistics (Card/Sheet Layout) ---
     pdf.addPage(pw.MultiPage(
         theme: theme,
-        pageFormat: PdfPageFormat.a4.landscape,
+        pageFormat: PdfPageFormat.a4, // Portrait mode
+        header: (context) => _buildPdfHeader(context, "Product Statistics Report"),
+        footer: (context) => _buildPdfFooter(context),
         build: (context) => [
-          pw.Header(level: 0, child: pw.Text("Product Statistics Report", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
-          pw.Text("Generated: ${DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now())}"),
+          _buildStatsAsCards(), // Vertical card layout
           pw.SizedBox(height: 20),
-          pw.Table.fromTextArray(
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              headers: ["Name", "Category", "Stock", "Sold", "Rate", "Original Rate", "Revenue", "Profit"],
-              data: filteredStats.map((item) => [
-                item['name'], item['type'], '${item['stockLeft']} ${item['unit']}', '${item['totalSold']} ${item['unit']}',
-                "₹${item['rate']}", "₹${item['originalRate']}", "₹${(item['revenue'] ?? 0).toStringAsFixed(2)}", "₹${(item['profit'] ?? 0).toStringAsFixed(2)}",
-              ]).toList()
-          ),
-          pw.SizedBox(height: 20),
-          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.end, children: [
-            pw.Text("Total Revenue (All Time): ₹${totalRevenue.toStringAsFixed(2)}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(width: 20),
-            pw.Text("Total Profit (All Time): ₹${totalProfit.toStringAsFixed(2)}", style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.green)),
-          ]),
-        ]
-    ));
+          _buildSummaryTotals(),
+        ]));
 
+    // --- Second Page: Sales Details (New Card/Sheet Layout) ---
     if (filteredSalesData.isNotEmpty) {
       pdf.addPage(pw.MultiPage(
           theme: theme,
+          pageFormat: PdfPageFormat.a4, // **FIX: Changed to Portrait**
+          header: (context) => _buildPdfHeader(context, "Sales Details Report"),
+          footer: (context) => _buildPdfFooter(context),
           build: (context) => [
-            pw.Header(level: 0, child: pw.Text("Sales Details Report", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
-            pw.Text(_getFilterLabel().replaceAll('Filter: ', 'Period: ')),
-            pw.SizedBox(height: 20),
-            pw.Table.fromTextArray(
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                headers: ["Date", "Customer", "Product", "Qty", "Rate", "Subtotal"],
-                data: filteredSalesData.map((sale) => [
-                  DateFormat('dd-MM-yy').format(DateTime.parse(sale['saleDate'])), sale['customerName'], sale['productName'],
-                  "${sale['quantity']} ${sale['unit']}", "₹${sale['rate'].toStringAsFixed(2)}", "₹${sale['subtotal'].toStringAsFixed(2)}",
-                ]).toList()
+            pw.Text(
+              _getFilterLabel().replaceAll('Filter: ', 'Period: '),
+              style: pw.TextStyle(font: font, fontStyle: pw.FontStyle.italic),
             ),
+            pw.SizedBox(height: 10),
+            _buildSalesAsCards(), // **FIX: Use the new vertical card layout**
             pw.SizedBox(height: 20),
             pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Text("Total Sales Amount (Filtered): ₹${filteredSalesAmount.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold))
-            )
-          ]
-      ));
+              alignment: pw.Alignment.centerRight,
+              child: pw.Text(
+                "Total Sales Amount (Filtered): ₹${filteredSalesAmount.toStringAsFixed(2)}",
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14),
+              ),
+            ),
+          ]));
     }
     await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
   }
+
+  // --- PDF HELPER WIDGETS ---
+
+  pw.Widget _buildPdfHeader(pw.Context context, String title) {
+    return pw.Column(children: [
+      pw.Text(title, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20)),
+      pw.SizedBox(height: 5),
+      pw.Text("Generated: ${DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now())}"),
+      pw.Divider(thickness: 1, color: PdfColors.grey),
+      pw.SizedBox(height: 10),
+    ]);
+  }
+
+  pw.Widget _buildPdfFooter(pw.Context context) {
+    return pw.Container(
+      alignment: pw.Alignment.centerRight,
+      margin: const pw.EdgeInsets.only(top: 1.0 * PdfPageFormat.cm),
+      child: pw.Text(
+        'Page ${context.pageNumber} of ${context.pagesCount}',
+        style: pw.Theme.of(context).defaultTextStyle.copyWith(color: PdfColors.grey),
+      ),
+    );
+  }
+
+  pw.Widget _buildStatsAsCards() {
+    return pw.ListView.builder(
+      itemCount: filteredStats.length,
+      itemBuilder: (context, index) {
+        final item = filteredStats[index];
+        final stockLeft = (item['stockLeft'] as double?) ?? 0.0;
+        final totalSold = (item['totalSold'] as double?) ?? 0.0;
+
+        return pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 12),
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400, width: 1),
+              borderRadius: pw.BorderRadius.circular(5),
+            ),
+            child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    item['name'] as String,
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14),
+                  ),
+                  pw.Divider(color: PdfColors.grey, height: 10),
+                  pw.SizedBox(height: 5),
+                  _buildCardRow('Category:', item['type'] as String),
+                  _buildCardRow('Stock:', '${formatQuantity(stockLeft)} ${item['unit']}'),
+                  _buildCardRow('Sold:', '${formatQuantity(totalSold)} ${item['unit']}'),
+                  _buildCardRow('Rate:', '₹${item['rate']}'),
+                  _buildCardRow('Original Rate:', '₹${item['originalRate']}'),
+                  _buildCardRow('Revenue:', '₹${(item['revenue'] ?? 0).toStringAsFixed(2)}'),
+                  _buildCardRow(
+                      'Profit:',
+                      '₹${(item['profit'] ?? 0).toStringAsFixed(2)}',
+                      valueColor: (item['profit'] ?? 0) >= 0 ? PdfColors.green600 : PdfColors.red600
+                  ),
+                ]
+            )
+        );
+      },
+    );
+  }
+
+  pw.Widget _buildCardRow(String label, String value, {PdfColor valueColor = PdfColors.black}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label, style: const pw.TextStyle(color: PdfColors.grey700)),
+          pw.Text(value, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: valueColor)),
+        ],
+      ),
+    );
+  }
+
+  // ** NEW WIDGET: Builds the vertical card/sheet layout for the sales report **
+  pw.Widget _buildSalesAsCards() {
+    return pw.ListView.builder(
+      itemCount: filteredSalesData.length,
+      itemBuilder: (context, index) {
+        final sale = filteredSalesData[index];
+        final quantity = (sale['quantity'] as double?) ?? 0.0;
+
+        return pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 12),
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400, width: 1),
+              borderRadius: pw.BorderRadius.circular(5),
+            ),
+            child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    sale['productName'] as String,
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14),
+                  ),
+                  pw.Divider(color: PdfColors.grey, height: 10),
+                  pw.SizedBox(height: 5),
+                  _buildCardRow('Date:', DateFormat('dd MMM yyyy').format(DateTime.parse(sale['saleDate']))),
+                  _buildCardRow('Customer:', sale['customerName'] as String),
+                  _buildCardRow('Quantity:', '${formatQuantity(quantity)} ${sale['unit']}'),
+                  _buildCardRow('Rate:', '₹${(sale['rate'] ?? 0).toStringAsFixed(2)}'),
+                  _buildCardRow(
+                    'Subtotal:',
+                    '₹${(sale['subtotal'] ?? 0).toStringAsFixed(2)}',
+                    valueColor: PdfColors.green600,
+                  ),
+                ]
+            )
+        );
+      },
+    );
+  }
+
+  pw.Widget _buildSummaryTotals() {
+    return pw.Container(
+        alignment: pw.Alignment.centerRight,
+        child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.SizedBox(height: 10),
+              pw.Text(
+                "Total Revenue (All Time): ₹${totalRevenue.toStringAsFixed(2)}",
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 5),
+              pw.Text(
+                "Total Profit (All Time): ₹${totalProfit.toStringAsFixed(2)}",
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.green),
+              ),
+            ]
+        )
+    );
+  }
+
+  // --- The rest of the file (UI part) is unchanged ---
 
   @override
   Widget build(BuildContext context) {
@@ -324,8 +497,6 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                   else
                     _buildSalesHistoryView(),
                   const SizedBox(height: 24),
-
-                  // *** NEW BUTTON ADDED HERE ***
                   ElevatedButton.icon(
                     onPressed: () {
                       Navigator.push(
@@ -343,9 +514,7 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                   ),
-                  const SizedBox(height: 12), // Spacing between buttons
-                  // ***************************
-
+                  const SizedBox(height: 12),
                   ElevatedButton.icon(
                     onPressed: _exportToPDF,
                     icon: const Icon(Icons.picture_as_pdf),
@@ -450,24 +619,29 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
             DataColumn(label: Text("Revenue"), numeric: true),
             DataColumn(label: Text("Profit"), numeric: true),
           ],
-          rows: filteredStats.map((item) => DataRow(cells: [
-            DataCell(Row(
-              children: [
-                buildProductImage(item['image'], size: 35),
-                const SizedBox(width: 12),
-                Text(item['name'] ?? '-'),
-              ],
-            )),
-            DataCell(Text('${item['stockLeft']} ${item['unit']}')),
-            DataCell(Text('${item['totalSold']} ${item['unit']}')),
-            DataCell(Text("₹${(item['revenue'] ?? 0).toStringAsFixed(2)}")),
-            DataCell(Text("₹${(item['profit'] ?? 0).toStringAsFixed(2)}",
-              style: TextStyle(
-                color: (item['profit'] ?? 0) >= 0 ? Colors.green.shade700 : Colors.red.shade700,
-                fontWeight: FontWeight.bold,
-              ),
-            )),
-          ])).toList(),
+          rows: filteredStats.map((item) {
+            final stockLeft = (item['stockLeft'] as double?) ?? 0.0;
+            final totalSold = (item['totalSold'] as double?) ?? 0.0;
+            return DataRow(cells: [
+              DataCell(Row(
+                children: [
+                  buildProductImage(item['image'], size: 35),
+                  const SizedBox(width: 12),
+                  Text(item['name'] ?? '-'),
+                ],
+              )),
+              DataCell(Text('${formatQuantity(stockLeft)} ${item['unit']}')),
+              DataCell(Text('${formatQuantity(totalSold)} ${item['unit']}')),
+              DataCell(Text("₹${(item['revenue'] ?? 0).toStringAsFixed(2)}")),
+              DataCell(Text(
+                "₹${(item['profit'] ?? 0).toStringAsFixed(2)}",
+                style: TextStyle(
+                  color: (item['profit'] ?? 0) >= 0 ? Colors.green.shade700 : Colors.red.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              )),
+            ]);
+          }).toList(),
         ),
       ),
     );
@@ -482,6 +656,8 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
       itemCount: filteredStats.length,
       itemBuilder: (context, index) {
         final item = filteredStats[index];
+        final stockLeft = (item['stockLeft'] as double?) ?? 0.0;
+        final totalSold = (item['totalSold'] as double?) ?? 0.0;
         return Card(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -498,8 +674,8 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                   ],
                 ),
                 const Divider(height: 20),
-                _buildStatRow("Stock Left:", '${item['stockLeft']} ${item['unit']}', Colors.blueGrey),
-                _buildStatRow("Total Sold:", '${item['totalSold']} ${item['unit']}', Colors.blueGrey),
+                _buildStatRow("Stock Left:", '${formatQuantity(stockLeft)} ${item['unit']}', Colors.blueGrey),
+                _buildStatRow("Total Sold:", '${formatQuantity(totalSold)} ${item['unit']}', Colors.blueGrey),
                 _buildStatRow("Total Revenue:", "₹${(item['revenue'] ?? 0).toStringAsFixed(2)}", Colors.black87),
                 _buildStatRow("Total Profit:", "₹${(item['profit'] ?? 0).toStringAsFixed(2)}", (item['profit'] ?? 0) >= 0 ? Colors.green.shade700 : Colors.red.shade700),
               ],
@@ -557,6 +733,7 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
             itemCount: filteredSalesData.length,
             itemBuilder: (context, index) {
               final sale = filteredSalesData[index];
+              final quantity = (sale['quantity'] as double?) ?? 0.0;
               return Card(
                 elevation: 1,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -570,7 +747,7 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text("₹${(sale['subtotal'] ?? 0).toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16)),
-                      Text('${sale['quantity']} ${sale['unit']}'),
+                      Text('${formatQuantity(quantity)} ${sale['unit']}'),
                     ],
                   ),
                 ),
@@ -587,7 +764,11 @@ class _StockAndSalesPageState extends State<StockAndSalesPage> {
         borderRadius: BorderRadius.circular(8),
         child: imagePath.startsWith("assets/")
             ? Image.asset(imagePath, width: size, height: size, fit: BoxFit.cover)
-            : Image.network(imagePath, width: size, height: size, fit: BoxFit.cover,
+            : Image.network(
+          imagePath,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
           loadingBuilder: (context, child, li) => li == null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
           errorBuilder: (c, e, s) => Image.asset('assets/images/img_4.png', width: size, height: size, fit: BoxFit.cover),
         ),

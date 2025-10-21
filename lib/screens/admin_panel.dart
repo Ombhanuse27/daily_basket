@@ -98,7 +98,7 @@ DailyBasket Team
 
   void _approveUser(String id, String email) async {
     final key = _generateActivationKey();
-    final expiry = DateTime.now().add(const Duration(days: 2));
+    final expiry = DateTime.now().add(const Duration(days: 7));
 
     await FirebaseService.approveUser(id, key, expiry);
     await _sendActivationEmail(email, key, expiry);
@@ -111,7 +111,7 @@ DailyBasket Team
 
   void _reissueKey(Map<String, dynamic> request) async {
     final key = _generateActivationKey();
-    final expiry = DateTime.now().add(const Duration(days: 2)); // for testing
+    final expiry = DateTime.now().add(const Duration(days: 7)); // for testing
 
 
     final userSnapshot = await FirebaseFirestore.instance

@@ -64,10 +64,11 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
 
     if (confirm == true) {
       try {
+        // *** UPDATED: Now updates the 'sales' collection ***
         await FirebaseFirestore.instance
             .collection('admins')
             .doc(adminId)
-            .collection('bills')
+            .collection('sales') // Changed from 'bills' to 'sales'
             .doc(billId)
             .update({'paymentStatus': 'Paid'});
 
@@ -93,12 +94,13 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
     }
   }
 
-  // *** NEW WIDGET: Logic for a single bill card is extracted here for reusability ***
+  // Logic for a single bill card
   Widget _buildBillCard(DocumentSnapshot bill) {
     final data = bill.data() as Map<String, dynamic>;
 
     final String customerName = data['customerName'] ?? 'N/A';
-    final double totalAmount = (data['totalAmount'] ?? 0.0).toDouble();
+    // *** UPDATED: Uses 'grandTotal' from the sales document ***
+    final double totalAmount = (data['grandTotal'] ?? 0.0).toDouble(); // Changed from 'totalAmount'
     final String paymentStatus = data['paymentStatus'] ?? 'Unknown';
     final Timestamp timestamp = data['billDate'] ?? Timestamp.now();
     final String formattedDate = DateFormat('dd MMM yyyy, hh:mm a').format(timestamp.toDate());
@@ -106,7 +108,7 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
 
     return Card(
       elevation: 3,
-      margin: EdgeInsets.zero, // Margin is handled by ListView/GridView padding
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
         side: BorderSide(
@@ -137,7 +139,6 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               visualDensity: VisualDensity.compact,
             ),
-            // *** OVERFLOW FIX: The button is now more compact ***
             if (!isPaid)
               Expanded(
                 child: TextButton(
@@ -145,7 +146,7 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    visualDensity: VisualDensity.compact, // Makes the button take less space
+                    visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: const Text('Mark Paid', style: TextStyle(fontSize: 12)),
@@ -175,10 +176,11 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
         ),
       )
           : StreamBuilder<QuerySnapshot>(
+        // *** UPDATED: Fetches from the 'sales' collection ***
         stream: FirebaseFirestore.instance
             .collection('admins')
             .doc(adminId)
-            .collection('bills')
+            .collection('sales') // Changed from 'bills' to 'sales'
             .orderBy('billDate', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -206,7 +208,7 @@ class _ViewBillsPageState extends State<ViewBillsPage> {
 
           final bills = snapshot.data!.docs;
 
-          // *** RESPONSIVE LAYOUT: Switches between ListView and GridView ***
+          // Responsive layout switches between ListView and GridView
           return LayoutBuilder(
             builder: (context, constraints) {
               const double breakpoint = 600.0;

@@ -405,14 +405,17 @@ class _BuyProductPageState extends State<BuyProductPage> {
 
       double grandTotal = subTotal + totalCgst + totalSgst;
 
-      Map<String, dynamic> billData = {
+      // Create the data map for the sale
+      Map<String, dynamic> saleData = {
         'invoiceId': invoiceId, 'customerName': customerName, 'paymentStatus': paymentStatus,
         'subTotal': subTotal, 'totalCgst': totalCgst, 'totalSgst': totalSgst,
         'grandTotal': grandTotal, 'gstApplied': applyGst,
         'billDate': Timestamp.now(), 'soldBy': currentUserEmail, 'items': billItemsForDb,
       };
-      final billRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('bills').doc();
-      batch.set(billRef, billData);
+
+      // Save the sale document to the 'sales' collection
+      final saleRef = FirebaseFirestore.instance.collection('admins').doc(adminId).collection('sales').doc();
+      batch.set(saleRef, saleData);
 
       await batch.commit();
 
